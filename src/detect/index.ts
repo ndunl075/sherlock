@@ -7,10 +7,12 @@
 import type { Ctx, Detector, FileRecord, Finding } from "../types.js";
 import { generatedDetector } from "./generated.js";
 import { vendoredDetector } from "./vendored.js";
+import { t0OverweightDetector } from "./t0-overweight.js";
 
 export const detectors: Detector[] = [
   generatedDetector,
   vendoredDetector,
+  t0OverweightDetector,
   // one line per new detector — see CONTRIBUTING.md
 ];
 
