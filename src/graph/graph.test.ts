@@ -159,3 +159,24 @@ test("buildGraph: GraphInput.source is parsed without reading absPath", async ()
   assert.deepEqual(signals.get("src/lib.ts")?.deadExports, ["deadFn"]);
   assert.deepEqual(moduleInfos.get("src/lib.ts")?.exportedNames, new Set(["used", "deadFn"]));
 });
+
+test("buildGraph: prefetched ModuleInfo skips read and source", async () => {
+  const prefetched = new Map([
+    [
+      "src/orphan.ts",
+      { imports: [], reexports: [], exportedNames: new Set(["prefetched"]) },
+    ],
+  ]);
+  const files: GraphInput[] = [
+    {
+      path: "src/orphan.ts",
+      absPath: "/nonexistent/src/orphan.ts",
+      tier: 1,
+      bytes: 10,
+      mtimeMs: 0,
+    },
+  ];
+  const { signals, moduleInfos } = await buildGraph(files, { prefetched });
+  assert.equal(moduleInfos.get("src/orphan.ts"), prefetched.get("src/orphan.ts"));
+  assert.deepEqual(signals.get("src/orphan.ts")?.deadExports, ["prefetched"]);
+});

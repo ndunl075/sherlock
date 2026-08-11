@@ -58,6 +58,28 @@ test("saveCache then loadCache: round-trips entries", async () => {
   }
 });
 
+test("saveCache then loadCache: round-trips moduleInfo and omits empty import arrays on disk", async () => {
+  const dir = await tmp();
+  try {
+    const entry: CacheEntry = {
+      mtimeMs: 1,
+      bytes: 2,
+      tokens: 3,
+      estimated: true,
+      kind: "source",
+      moduleInfo: { imports: [], reexports: [], exportedNames: ["only"] },
+    };
+    await saveCache(dir, new Map([["src/a.ts", entry]]));
+    const raw = await fs.readFile(path.join(dir, ".sherlock", "cache.json"), "utf8");
+    assert.equal(raw.includes('"imports"'), false);
+    assert.equal(raw.includes('"reexports"'), false);
+    const cache = await loadCache(dir);
+    assert.deepEqual(cache.get("src/a.ts"), entry);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("saveCache: adds .sherlock/ to .gitignore on first run, doesn't duplicate on the second", async () => {
   const dir = await tmp();
   try {

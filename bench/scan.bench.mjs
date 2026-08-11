@@ -71,6 +71,9 @@ async function buildFixture(root, count) {
   await fs.writeFile(path.join(root, "CLAUDE.md"), "# Bench fixture instructions\nNothing real here.\n");
   await fs.mkdir(path.join(root, "vendor"), { recursive: true });
   await fs.writeFile(path.join(root, "vendor", "sdk.js"), "// vendored\nmodule.exports = {};\n");
+  // Pre-seed .gitignore so cold's ensureGitignored doesn't create a new file
+  // that makes warm look "dirty" and rewrite the entire 50k-entry cache.
+  await fs.writeFile(path.join(root, ".gitignore"), ".sherlock/\n");
 }
 
 function peakRssMonitor() {
@@ -106,7 +109,7 @@ async function main() {
   console.log("Cold scan (no cache)...");
   const rssColdMonitor = peakRssMonitor();
   const coldStart = performance.now();
-  const coldResult = await scan(root, {});
+  let coldResult = await scan(root, {});
   const coldMs = performance.now() - coldStart;
   const coldPeakRss = rssColdMonitor.stop();
   const coldPass = !enforceTargets || coldMs < COLD_BUDGET_MS;
@@ -114,6 +117,11 @@ async function main() {
     `  ${fmtMs(coldMs)} (budget ${fmtMs(COLD_BUDGET_MS)}) ${coldPass ? "PASS" : "FAIL"} — ${coldResult.files.length} files, peak RSS ${fmtMB(coldPeakRss)}`,
   );
   ok &&= coldPass;
+  // Drop cold results before warm so peak RSS measures the warm scan alone,
+  // not cold+warm retained heaps — a real watch-loop warm run doesn't keep
+  // the previous ScanResult pinned.
+  const coldFileCount = coldResult.files.length;
+  coldResult = null;
 
   console.log("Warm scan (cached)...");
   const rssWarmMonitor = peakRssMonitor();
@@ -126,6 +134,10 @@ async function main() {
     `  ${fmtMs(warmMs)} (budget ${fmtMs(WARM_BUDGET_MS)}) ${warmPass ? "PASS" : "FAIL"} — ${warmResult.files.length} files, peak RSS ${fmtMB(warmPeakRss)}`,
   );
   ok &&= warmPass;
+  if (warmResult.files.length < coldFileCount) {
+    console.error(`warm file count dropped vs cold (${warmResult.files.length} < ${coldFileCount})`);
+    ok = false;
+  }
 
   const peakRss = Math.max(coldPeakRss, warmPeakRss);
   const rssPass = !enforceTargets || peakRss < PEAK_RSS_BUDGET_BYTES;

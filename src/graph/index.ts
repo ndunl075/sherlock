@@ -50,6 +50,8 @@ export interface GraphResult {
 
 export interface BuildGraphOptions {
   getCached?: (path: string, bytes: number, mtimeMs: number) => ModuleInfo | undefined;
+  /** ModuleInfos already parsed elsewhere (e.g. during exact measure) — skips read+parse for those paths */
+  prefetched?: ReadonlyMap<string, ModuleInfo>;
 }
 
 const RESOLVE_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
@@ -122,7 +124,7 @@ export async function buildGraph(files: GraphInput[], opts: BuildGraphOptions = 
   // safe: each file only touches its own moduleInfos/exportsByFile key, and
   // addEdge/addUsed are plain synchronous Map/Set operations.
   await runPool(eligible, async (file) => {
-    let info = opts.getCached?.(file.path, file.bytes, file.mtimeMs);
+    let info = opts.prefetched?.get(file.path) ?? opts.getCached?.(file.path, file.bytes, file.mtimeMs);
     if (!info) {
       let source = file.source;
       if (source === undefined) {

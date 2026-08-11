@@ -14,6 +14,10 @@
 // metadata; never file content or snippets (§12). Cache writes are
 // best-effort: a failed write (read-only fs, no permissions) must never fail
 // the scan, and .sherlock/ is added to the repo's .gitignore on first run.
+//
+// v2 wire format uses compact tuples instead of verbose objects — on a 50k-file
+// warm scan, JSON.parse of the v1 shape alone was hundreds of ms and a large
+// share of peak RSS (§9). Empty imports/reexports arrays are omitted.
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -40,17 +44,103 @@ export interface CacheEntry {
   moduleInfo?: CachedModuleInfo;
 }
 
-const FORMAT_VERSION = 1;
+const FORMAT_VERSION = 2;
 const CACHE_DIR_NAME = ".sherlock";
 const CACHE_FILE_NAME = "cache.json";
 const GITIGNORE_LINE = ".sherlock/";
 
-interface CacheFile {
-  formatVersion: number;
-  entries: Record<string, CacheEntry>;
+const FILE_KINDS = new Set<string>(["source", "generated", "vendored", "doc", "fixture", "binary"]);
+
+/** Compact on-disk row; trailing optional slots are omitted when unused. */
+type WireEntry = Array<number | string | WireModuleInfo | string[] | null>;
+
+/** [exportedNames, imports?, reexports?] — trailing empties omitted */
+type WireModuleInfo = [string[], ModuleImport[]?, ModuleReexport[]?];
+
+interface CacheFileV2 {
+  formatVersion: 2;
+  entries: Record<string, WireEntry>;
 }
 
-function isCacheFile(v: unknown): v is CacheFile {
+function packModuleInfo(info: CachedModuleInfo): WireModuleInfo {
+  const wire: WireModuleInfo = [info.exportedNames];
+  if (info.imports.length > 0) wire[1] = info.imports;
+  if (info.reexports.length > 0) {
+    if (wire[1] === undefined) wire[1] = [];
+    wire[2] = info.reexports;
+  }
+  return wire;
+}
+
+function unpackModuleInfo(wire: WireModuleInfo): CachedModuleInfo {
+  return {
+    exportedNames: wire[0] ?? [],
+    imports: wire[1] ?? [],
+    reexports: wire[2] ?? [],
+  };
+}
+
+function packEntry(entry: CacheEntry): WireEntry {
+  const wire: WireEntry = [
+    entry.mtimeMs,
+    entry.bytes,
+    entry.tokens,
+    entry.estimated ? 1 : 0,
+    entry.kind,
+  ];
+  const hasExtras =
+    entry.moduleInfo !== undefined ||
+    entry.generatedHeader !== undefined ||
+    entry.referencedPaths !== undefined ||
+    entry.contentSimhash !== undefined;
+  if (!hasExtras) return wire;
+
+  wire.push(entry.moduleInfo ? packModuleInfo(entry.moduleInfo) : 0);
+  if (entry.generatedHeader !== undefined || entry.referencedPaths !== undefined || entry.contentSimhash !== undefined) {
+    wire.push(entry.generatedHeader === undefined ? null : entry.generatedHeader ? 1 : 0);
+  }
+  if (entry.referencedPaths !== undefined || entry.contentSimhash !== undefined) {
+    wire.push(entry.referencedPaths ?? null);
+  }
+  if (entry.contentSimhash !== undefined) {
+    wire.push(entry.contentSimhash);
+  }
+  return wire;
+}
+
+function unpackEntry(wire: unknown): CacheEntry | undefined {
+  if (!Array.isArray(wire) || wire.length < 5) return undefined;
+  const mtimeMs = wire[0];
+  const bytes = wire[1];
+  const tokens = wire[2];
+  const estimated = wire[3];
+  const kind = wire[4];
+  if (
+    typeof mtimeMs !== "number" ||
+    typeof bytes !== "number" ||
+    typeof tokens !== "number" ||
+    (estimated !== 0 && estimated !== 1) ||
+    typeof kind !== "string" ||
+    !FILE_KINDS.has(kind)
+  ) {
+    return undefined;
+  }
+  const entry: CacheEntry = {
+    mtimeMs,
+    bytes,
+    tokens,
+    estimated: estimated === 1,
+    kind: kind as FileKind,
+  };
+  const mod = wire[5];
+  if (Array.isArray(mod)) entry.moduleInfo = unpackModuleInfo(mod as WireModuleInfo);
+  if (wire[6] === 0 || wire[6] === 1) entry.generatedHeader = wire[6] === 1;
+  if (Array.isArray(wire[7])) entry.referencedPaths = wire[7] as string[];
+  if (typeof wire[8] === "number") entry.contentSimhash = wire[8];
+  return entry;
+}
+
+function isCacheFileV2(v: unknown): v is CacheFileV2 {
   return (
     typeof v === "object" &&
     v !== null &&
@@ -70,8 +160,13 @@ export async function loadCache(root: string): Promise<Map<string, CacheEntry>> 
   try {
     const text = await fs.readFile(path.join(root, CACHE_DIR_NAME, CACHE_FILE_NAME), "utf8");
     const parsed: unknown = JSON.parse(text);
-    if (!isCacheFile(parsed)) return new Map(); // format mismatch (or corrupt) — silently discard, per §11
-    return new Map(Object.entries(parsed.entries));
+    if (!isCacheFileV2(parsed)) return new Map(); // format mismatch (or corrupt) — silently discard, per §11
+    const map = new Map<string, CacheEntry>();
+    for (const [p, wire] of Object.entries(parsed.entries)) {
+      const entry = unpackEntry(wire);
+      if (entry) map.set(p, entry);
+    }
+    return map;
   } catch {
     return new Map(); // no cache yet (cold on fresh clone, per §10) or unreadable — cold start either way
   }
@@ -99,7 +194,11 @@ export async function saveCache(root: string, entries: Map<string, CacheEntry>):
   try {
     const dir = path.join(root, CACHE_DIR_NAME);
     await fs.mkdir(dir, { recursive: true });
-    const file: CacheFile = { formatVersion: FORMAT_VERSION, entries: Object.fromEntries(entries) };
+    const wireEntries: Record<string, WireEntry> = {};
+    for (const [p, entry] of entries) {
+      wireEntries[p] = packEntry(entry);
+    }
+    const file: CacheFileV2 = { formatVersion: FORMAT_VERSION, entries: wireEntries };
     await fs.writeFile(path.join(dir, CACHE_FILE_NAME), JSON.stringify(file));
     await ensureGitignored(root);
   } catch {

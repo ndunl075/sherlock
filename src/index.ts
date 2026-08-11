@@ -7,11 +7,13 @@
 // completed record set, and never re-read the disk themselves.
 //
 // Measure/graph ordering is deliberate for I/O: exact-eligible files are
-// measured first so their full text can be handed to buildGraph without a
-// second disk read. Sampled files and history load in parallel with graph
-// construction; records are assembled only after both finish.
+// measured and (when graph-eligible) parsed in one pass so tree-sitter work
+// overlaps disk reads instead of waiting for every exact measure to finish.
+// Sampled files and history load in parallel with the remaining graph
+// aggregate; records are assembled only after both finish.
 
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { discover, type DiscoveredFile } from "./discover/index.js";
 import { classify, needsContentSniff } from "./classify/index.js";
@@ -22,7 +24,7 @@ import { extractResolvedLinks } from "./measure/links.js";
 import { computeSimhash } from "./measure/simhash.js";
 import { loadHistory, isGitRepo } from "./history/index.js";
 import { buildGraph, type GraphInput } from "./graph/index.js";
-import { isGraphEligibleExt } from "./graph/parse.js";
+import { isGraphEligibleExt, parseModule, type ModuleInfo } from "./graph/parse.js";
 import { runAll } from "./detect/index.js";
 import { computeRollup, type Rollup } from "./score/index.js";
 import { loadConfig } from "./config/index.js";
@@ -35,6 +37,8 @@ import { type Ctx, type FileKind, type FileRecord, type Finding, type Tier } fro
 export type { Detector, Finding } from "./types.js";
 
 const SNIFF_BYTES = 512;
+/** Higher than util/pool's default — exact measure+parse interleaves tiny-file IO with tree-sitter CPU. */
+const MEASURE_PARSE_CONCURRENCY = Math.max(64, os.cpus().length * 16);
 
 async function sniff(absPath: string): Promise<Buffer | undefined> {
   try {
@@ -137,7 +141,20 @@ function assembleRecord(
 export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanResult> {
   const absRoot = path.resolve(root);
   let t = performance.now();
-  const [discovered, config, cache] = await Promise.all([discover(absRoot), loadConfig(absRoot), loadCache(absRoot)]);
+  const discoveredP = discover(absRoot);
+  const configP = loadConfig(absRoot);
+  const cacheP = loadCache(absRoot);
+  const [discovered, config, cache] = await Promise.all([
+    discoveredP.then((v) => {
+      mark("discover", t);
+      return v;
+    }),
+    configP,
+    cacheP.then((v) => {
+      mark("loadCache", t);
+      return v;
+    }),
+  ]);
   mark("discover+config+cache", t);
 
   t = performance.now();
@@ -164,9 +181,12 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
   };
 
   const measuredByPath = new Map<string, MeasuredFields>();
+  const prefetched = new Map<string, ModuleInfo>();
+  let cacheDirty = false;
 
-  // Phase 1: measure exact-eligible cache misses first. Their full text is
-  // what buildGraph would otherwise re-read from disk.
+  // Phase 1: measure exact-eligible cache misses, and parse graph-eligible
+  // sources in the same worker so tree-sitter CPU overlaps remaining reads
+  // instead of waiting for the full measure wave to drain.
   t = performance.now();
   const exactToMeasure: DiscoveredFile[] = [];
   const sampledToMeasure: DiscoveredFile[] = [];
@@ -183,46 +203,55 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
       if (cached.referencedPaths !== undefined) fields.referencedPaths = cached.referencedPaths;
       if (cached.contentSimhash !== undefined) fields.contentSimhash = cached.contentSimhash;
       measuredByPath.set(f.path, fields);
+      // Valid token cache without a moduleInfo (older cache shape) still needs a
+      // graph parse + rewrite so the next warm run can skip the read.
+      if (isGraphEligibleExt(extnameOf(f.path)) && !cached.moduleInfo) cacheDirty = true;
       continue;
     }
+    cacheDirty = true;
     if (willMeasureExact(f.bytes, tier, kind, f.path)) exactToMeasure.push(f);
     else sampledToMeasure.push(f);
   }
 
-  await runPool(exactToMeasure, async (f) => {
-    const kind = kindOf(f.path);
-    const tier = (tiers.get(f.path) ?? 1) as Tier;
-    const measured = await measureTokens(f, tier, kind);
-    measuredByPath.set(f.path, deriveSignals(kind, measured, f.path));
-  });
-  mark("measure exact", t);
+  await runPool(
+    exactToMeasure,
+    async (f) => {
+      const kind = kindOf(f.path);
+      const tier = (tiers.get(f.path) ?? 1) as Tier;
+      const measured = await measureTokens(f, tier, kind);
+      const fields = deriveSignals(kind, measured, f.path);
+      const ext = extnameOf(f.path);
+      if (
+        fields.text !== undefined &&
+        isGraphEligibleExt(ext) &&
+        !getCachedModuleInfo(f.path, f.bytes, f.mtimeMs)
+      ) {
+        const parsed = parseModule(fields.text, ext);
+        if (parsed) prefetched.set(f.path, parsed);
+      }
+      delete fields.text; // drop immediately — never retained across the graph phase
+      measuredByPath.set(f.path, fields);
+    },
+    MEASURE_PARSE_CONCURRENCY,
+  );
+  mark("measure exact (+parse)", t);
 
-  // Only keep in-memory text for graph-eligible files that still need a parse.
-  // Holding every exact file's text until assembly would inflate peak RSS for
-  // no benefit on docs/non-JS paths.
-  const graphInputs: GraphInput[] = discovered.map((f) => {
-    const input: GraphInput = {
-      path: f.path,
-      absPath: f.absPath,
-      tier: (tiers.get(f.path) ?? 1) as Tier,
-      bytes: f.bytes,
-      mtimeMs: f.mtimeMs,
-    };
-    const needsParse =
-      isGraphEligibleExt(extnameOf(f.path)) && !getCachedModuleInfo(f.path, f.bytes, f.mtimeMs);
-    if (needsParse) {
-      const text = measuredByPath.get(f.path)?.text;
-      if (text !== undefined) input.source = text;
-    }
-    return input;
-  });
+  const graphInputs: GraphInput[] = discovered.map((f) => ({
+    path: f.path,
+    absPath: f.absPath,
+    tier: (tiers.get(f.path) ?? 1) as Tier,
+    bytes: f.bytes,
+    mtimeMs: f.mtimeMs,
+  }));
 
-  // Phase 2: graph + history in parallel with remaining sampled measures.
+  // Phase 2: graph aggregate (+ history) in parallel with remaining sampled measures.
+  // Prefetched ModuleInfos skip read+parse; cache hits skip too; only large
+  // graph-eligible files still read here.
   t = performance.now();
   const [history, gitAvailable, graphResult] = await Promise.all([
     loadHistory(absRoot),
     isGitRepo(absRoot),
-    buildGraph(graphInputs, { getCached: getCachedModuleInfo }),
+    buildGraph(graphInputs, { getCached: getCachedModuleInfo, prefetched }),
     runPool(sampledToMeasure, async (f) => {
       const kind = kindOf(f.path);
       const tier = (tiers.get(f.path) ?? 1) as Tier;
@@ -233,44 +262,46 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
   mark("history+git+buildGraph+sample measure", t);
   const { signals: graph, moduleInfos } = graphResult;
 
-  // Drop in-memory sources now that parse is done — never land in cache/records (§12).
-  for (const input of graphInputs) delete input.source;
-  for (const fields of measuredByPath.values()) delete fields.text;
-
-  // Phase 3: assemble FileRecords + cache entries from measured fields + graph.
+  // Phase 3: assemble FileRecords (+ cache entries when we'll write).
   t = performance.now();
-  const newCache = new Map<string, CacheEntry>();
+  const shouldWriteCache = cacheDirty || cache.size !== discovered.length;
+  const newCache = shouldWriteCache ? new Map<string, CacheEntry>() : undefined;
   const files: FileRecord[] = discovered.map((f) => {
     const kind = kindOf(f.path);
     const tier = (tiers.get(f.path) ?? 1) as Tier;
     const measured = measuredByPath.get(f.path) ?? { tokens: 0, estimated: true };
 
-    const cacheEntry: CacheEntry = {
-      mtimeMs: f.mtimeMs,
-      bytes: f.bytes,
-      tokens: measured.tokens,
-      estimated: measured.estimated,
-      kind,
-    };
-    if (measured.generatedHeader !== undefined) cacheEntry.generatedHeader = measured.generatedHeader;
-    if (measured.referencedPaths !== undefined) cacheEntry.referencedPaths = measured.referencedPaths;
-    if (measured.contentSimhash !== undefined) cacheEntry.contentSimhash = measured.contentSimhash;
-    const info = moduleInfos.get(f.path);
-    if (info) {
-      cacheEntry.moduleInfo = {
-        imports: info.imports,
-        reexports: info.reexports,
-        exportedNames: [...info.exportedNames],
+    if (newCache) {
+      const cacheEntry: CacheEntry = {
+        mtimeMs: f.mtimeMs,
+        bytes: f.bytes,
+        tokens: measured.tokens,
+        estimated: measured.estimated,
+        kind,
       };
+      if (measured.generatedHeader !== undefined) cacheEntry.generatedHeader = measured.generatedHeader;
+      if (measured.referencedPaths !== undefined) cacheEntry.referencedPaths = measured.referencedPaths;
+      if (measured.contentSimhash !== undefined) cacheEntry.contentSimhash = measured.contentSimhash;
+      const info = moduleInfos.get(f.path);
+      if (info) {
+        cacheEntry.moduleInfo = {
+          imports: info.imports,
+          reexports: info.reexports,
+          exportedNames: [...info.exportedNames],
+        };
+      }
+      newCache.set(f.path, cacheEntry);
     }
-    newCache.set(f.path, cacheEntry);
 
     return assembleRecord(f, kind, tier, measured, history.get(f.path), graph.get(f.path));
   });
   mark("assemble records", t);
 
+  // Warm runs with a fully valid cache still used to rewrite the entire
+  // .sherlock/cache.json (JSON.stringify of 50k moduleInfo entries) — pure
+  // overhead on the §9 warm budget. Skip when nothing changed.
   t = performance.now();
-  await saveCache(absRoot, newCache);
+  if (newCache) await saveCache(absRoot, newCache);
   mark("saveCache", t);
 
   const budget = opts.budget ?? config.budget;
