@@ -5,13 +5,17 @@
 
 import type { Finding } from "../types.js";
 
-const IGNORE_FILE = ".claudeignore";
+export const IGNORE_FILES = [".claudeignore", ".cursorignore"] as const;
 
 /**
  * Return a deterministic unified diff which adds every path with an `ignore`
  * recommendation that is not already present in the target ignore file.
  */
-export function renderIgnorePatch(existing: string | undefined, findings: Finding[]): string {
+export function renderIgnorePatch(
+  existing: string | undefined,
+  findings: Finding[],
+  ignoreFile: string = ".claudeignore",
+): string {
   const known = new Set(
     (existing ?? "")
       .split(/\r?\n/)
@@ -26,8 +30,8 @@ export function renderIgnorePatch(existing: string | undefined, findings: Findin
 
   const oldLines = existing === undefined ? 0 : existing.split(/\r?\n/).filter((_, i, lines) => i < lines.length - 1 || lines[i] !== "").length;
   const header = existing === undefined
-    ? `--- /dev/null\n+++ b/${IGNORE_FILE}\n@@ -0,0 +1,${additions.length} @@`
-    : `--- a/${IGNORE_FILE}\n+++ b/${IGNORE_FILE}\n@@ -1,${oldLines} +1,${oldLines + additions.length} @@`;
+    ? `--- /dev/null\n+++ b/${ignoreFile}\n@@ -0,0 +1,${additions.length} @@`
+    : `--- a/${ignoreFile}\n+++ b/${ignoreFile}\n@@ -1,${oldLines} +1,${oldLines + additions.length} @@`;
   const context = existing === undefined ? [] : existing.replace(/\r?\n$/, "").split(/\r?\n/).map((line) => ` ${line}`);
   return `${header}\n${[...context, ...additions.map((path) => `+${path}`)].join("\n")}\n`;
 }

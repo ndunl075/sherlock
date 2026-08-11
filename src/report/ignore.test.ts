@@ -24,3 +24,7 @@ test("renderIgnorePatch: preserves existing lines and does not re-add them", () 
 test("renderIgnorePatch: is empty when there is nothing safe to add", () => {
   assert.equal(renderIgnorePatch("dist/\n", [finding("dist/"), finding("README.md", "review")]), "");
 });
+
+test("renderIgnorePatch: can target Cursor's ignore file", () => {
+  assert.match(renderIgnorePatch(undefined, [finding("dist/")], ".cursorignore"), /\+\+\+ b\/\.cursorignore/);
+});

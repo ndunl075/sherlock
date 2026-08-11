@@ -5,9 +5,9 @@ quietly taxing every AI coding session — dead code, generated blobs, redundant
 docs — so you can trim what Claude Code, Cursor, or Codex has to read before
 every request.
 
-> **Status: design stage.** The architecture is settled and public; the
-> implementation isn't written yet. Nothing here is installable today. If the
-> model in [ARCHITECTURE.md](ARCHITECTURE.md) is wrong, now is the cheap time to
+> **Status: v1 implementation in progress.**
+> The scanner, nine built-in detectors, JSON report, cache, and ignore-patch
+> output are implemented. The performance targets in
 > say so — open an issue.
 
 ---
