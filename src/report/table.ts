@@ -3,7 +3,7 @@
 // Falls back to a "biggest resident files" listing when no detector fires on
 // this repo (findings is empty) so the report stays useful either way.
 
-import type { FileRecord, Finding } from "../types.js";
+import type { FileRecord, Finding, Suggestion } from "../types.js";
 import type { Rollup } from "../score/index.js";
 
 const BAR_WIDTH = 10;
@@ -62,13 +62,24 @@ export function renderTable(rollup: Rollup, files: FileRecord[], findings: Findi
       }
     }
   } else {
-    lines.push(`  ${pad("PATH", 50)}${pad("DETECTOR", 16)}${pad("CONF", 6)}REASON`);
+    const groups = new Map<Suggestion, Array<{ path: string; detector: string; confidence: number; reason: string }>>();
     for (const r of rollup.ranked.slice(0, 20)) {
       const top = findings.filter((f) => f.path === r.path).sort((a, b) => b.confidence - a.confidence)[0];
       if (!top) continue;
+      const group = groups.get(top.suggest) ?? [];
+      group.push({ path: r.path, detector: top.detector, confidence: top.confidence, reason: top.reason });
+      groups.set(top.suggest, group);
+    }
+    for (const suggest of ["ignore", "split", "delete", "review"] as const) {
+      const group = groups.get(suggest);
+      if (!group || group.length === 0) continue;
+      lines.push(`  ${suggest.toUpperCase()}`);
+      lines.push(`  ${pad("PATH", 50)}${pad("DETECTOR", 16)}${pad("CONF", 6)}REASON`);
+      for (const top of group) {
       lines.push(
-        `  ${pad(r.path, 50)}${pad(top.detector, 16)}${pad(top.confidence.toFixed(2), 6)}${top.reason}`,
+          `  ${pad(top.path, 50)}${pad(top.detector, 16)}${pad(top.confidence.toFixed(2), 6)}${top.reason}`,
       );
+      }
     }
   }
 
