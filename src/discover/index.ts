@@ -19,6 +19,8 @@ export interface DiscoveredFile {
   /** absolute, OS-native separators — for reading only, never surfaced in output */
   absPath: string;
   bytes: number;
+  /** mtime in epoch ms — cache/'s invalidation key alongside path+bytes */
+  mtimeMs: number;
 }
 
 export interface DiscoverOptions {
@@ -110,7 +112,7 @@ export async function discover(root: string, opts: DiscoverOptions = {}): Promis
       const st = await fs.stat(realAbs).catch(() => null);
       if (!st || !st.isFile()) continue;
 
-      results.push({ path: toPosix(entryRel), absPath: realAbs, bytes: st.size });
+      results.push({ path: toPosix(entryRel), absPath: realAbs, bytes: st.size, mtimeMs: st.mtimeMs });
     }
   }
 

@@ -24,7 +24,7 @@ async function fixture(): Promise<{ root: string; files: DiscoveredFile[] }> {
     const abs = path.join(root, ...rel.split("/"));
     await fs.writeFile(abs, content);
     const st = await fs.stat(abs);
-    files.push({ path: rel, absPath: abs, bytes: st.size });
+    files.push({ path: rel, absPath: abs, bytes: st.size, mtimeMs: st.mtimeMs });
   }
   return { root, files };
 }

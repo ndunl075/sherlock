@@ -19,7 +19,7 @@ test("measureTokens: small file is read in full and marked exact", async () => {
     const p = path.join(dir, "small.ts");
     await fs.writeFile(p, "export const x = 1;\n");
     const st = await fs.stat(p);
-    const result = await measureTokens({ path: "small.ts", absPath: p, bytes: st.size }, 1, "source");
+    const result = await measureTokens({ path: "small.ts", absPath: p, bytes: st.size, mtimeMs: st.mtimeMs }, 1, "source");
     assert.equal(result.estimated, false);
     assert.ok(result.tokens > 0);
   } finally {
@@ -33,7 +33,7 @@ test("measureTokens: tier 0 files are read in full even when large", async () =>
     const p = path.join(dir, "CLAUDE.md");
     await fs.writeFile(p, "word ".repeat(10_000)); // ~50KB, above the sample threshold
     const st = await fs.stat(p);
-    const result = await measureTokens({ path: "CLAUDE.md", absPath: p, bytes: st.size }, 0, "doc");
+    const result = await measureTokens({ path: "CLAUDE.md", absPath: p, bytes: st.size, mtimeMs: st.mtimeMs }, 0, "doc");
     assert.equal(result.estimated, false);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -46,7 +46,7 @@ test("measureTokens: large tier-1 file is sampled and estimated", async () => {
     const p = path.join(dir, "big.md");
     await fs.writeFile(p, "word ".repeat(10_000));
     const st = await fs.stat(p);
-    const result = await measureTokens({ path: "big.md", absPath: p, bytes: st.size }, 1, "doc");
+    const result = await measureTokens({ path: "big.md", absPath: p, bytes: st.size, mtimeMs: st.mtimeMs }, 1, "doc");
     assert.equal(result.estimated, true);
     assert.ok(result.tokens > 0);
   } finally {
@@ -55,6 +55,6 @@ test("measureTokens: large tier-1 file is sampled and estimated", async () => {
 });
 
 test("measureTokens: binary kind is never tokenized", async () => {
-  const result = await measureTokens({ path: "logo.png", absPath: "/nonexistent", bytes: 12345 }, 1, "binary");
+  const result = await measureTokens({ path: "logo.png", absPath: "/nonexistent", bytes: 12345, mtimeMs: 0 }, 1, "binary");
   assert.deepEqual(result, { tokens: 0, estimated: true, headSample: "" });
 });
