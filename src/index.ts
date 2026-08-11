@@ -24,6 +24,10 @@ import { loadCache, saveCache, isCacheValid, type CacheEntry } from "./cache/ind
 import { runPool } from "./util/pool.js";
 import { type Ctx, type FileRecord, type Finding } from "./types.js";
 
+// Public semver surface — ARCHITECTURE.md §11. Keep these root exports
+// additive: detector packages must not need to reach into internal modules.
+export type { Detector, Finding } from "./types.js";
+
 const SNIFF_BYTES = 512;
 
 async function sniff(absPath: string): Promise<Buffer | undefined> {
