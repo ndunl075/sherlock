@@ -16,6 +16,11 @@ test("isLikelyEntrypoint: test/spec files are entrypoints — invoked directly, 
   assert.equal(isLikelyEntrypoint("src/foo.spec.js", 1), true);
 });
 
+test("isLikelyEntrypoint: bin and bench files are entrypoints", () => {
+  assert.equal(isLikelyEntrypoint("src/bin.mjs", 1), true);
+  assert.equal(isLikelyEntrypoint("bench/scan.bench.mjs", 1), true);
+});
+
 test("isLikelyEntrypoint: ordinary source files are not entrypoints", () => {
   assert.equal(isLikelyEntrypoint("src/util/posix-path.ts", 1), false);
 });

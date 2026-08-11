@@ -5,11 +5,8 @@
 // seen are skipped outright — "cold" is a claim about history, and there's
 // none to make it from.
 //
-// "Not an entrypoint" now has an import graph to check against (graph/,
-// added alongside dead-export/orphan-module) but this detector predates it
-// and doesn't need the graph's precision — the same basename-allowlist
-// heuristic those two use for their own entrypoint seed set is enough here
-// too, so it's shared via util/entrypoints.ts rather than forked.
+// Entrypoint exclusion uses the shared basename allowlist plus any paths
+// declared in package.json main/bin/exports (passed via Ctx.packageEntrypoints).
 
 import type { Ctx, Detector, FileRecord, Finding } from "../types.js";
 import { isLikelyEntrypointFile } from "../util/entrypoints.js";
@@ -31,7 +28,7 @@ export const coldAndCostlyDetector: Detector = {
 
       const ageSeconds = now - file.lastCommit;
       if (ageSeconds < COLD_SECONDS) continue;
-      if (isLikelyEntrypointFile(file)) continue;
+      if (isLikelyEntrypointFile(file) || ctx?.packageEntrypoints?.has(file.path)) continue;
 
       const ageDays = Math.floor(ageSeconds / 86_400);
       const ageBonus = Math.min(0.3, ((ageDays - COLD_DAYS) / 365) * 0.3);

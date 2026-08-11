@@ -38,8 +38,8 @@ them:
   `` `contains "${line}"` `` is a content leak and will be rejected. Detector
   tests assert reasons are templated (see `generated.test.ts`).
 - **No I/O.** Detectors receive completed records. No `fs`, no `child_process`,
-  no network — that's not a style preference, it's what keeps `npx sherlock`
-  safe to run on an untrusted repo.
+  no network — that's not a style preference, it's what keeps
+  `npx @ndunl075/sherlock` safe to run on an untrusted repo.
 - **Confidence must mean something.** `confidence` is *P(safe to trim)*, and it
   drives ranking. If you can't justify the number, it's probably `0.5` and
   probably shouldn't ship.
@@ -49,7 +49,8 @@ them:
 ## Local checks
 
 ```bash
-npm test          # typecheck + unit tests
+npm test          # build (tsc) + unit/e2e tests
+npm run typecheck # tsc --noEmit only
 npm run bench     # §9 50k-file cold/warm/RSS budgets (slow; not in CI)
 ```
 

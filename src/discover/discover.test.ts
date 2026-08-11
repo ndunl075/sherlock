@@ -72,3 +72,44 @@ test("discover: stops accepting files once the total-byte cap is reached", async
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("discover: respects maxDepth and maxFiles caps", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sherlock-discover-"));
+  try {
+    await fs.mkdir(path.join(root, "a", "b"), { recursive: true });
+    await fs.writeFile(path.join(root, "root.txt"), "r");
+    await fs.writeFile(path.join(root, "a", "mid.txt"), "m");
+    await fs.writeFile(path.join(root, "a", "b", "deep.txt"), "d");
+
+    const shallow = await discover(root, { maxDepth: 1 });
+    const shallowPaths = shallow.map((f) => f.path).sort();
+    assert.ok(shallowPaths.includes("root.txt"));
+    assert.ok(shallowPaths.includes("a/mid.txt"));
+    assert.equal(shallowPaths.includes("a/b/deep.txt"), false);
+
+    const capped = await discover(root, { maxFiles: 2 });
+    assert.equal(capped.length, 2);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("discover: never follows a file symlink that escapes the repo root", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sherlock-discover-"));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "sherlock-outside-"));
+  try {
+    const secret = path.join(outside, "secret.txt");
+    await fs.writeFile(secret, "do not read");
+    const linkPath = path.join(root, "leak.txt");
+    try {
+      await fs.symlink(secret, linkPath);
+    } catch {
+      return; // symlink privilege unavailable — skip
+    }
+    const files = await discover(root);
+    assert.equal(files.some((f) => f.path === "leak.txt"), false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
+  }
+});

@@ -30,6 +30,8 @@ import { computeRollup, type Rollup } from "./score/index.js";
 import { loadConfig } from "./config/index.js";
 import { loadCache, saveCache, isCacheValid, type CacheEntry } from "./cache/index.js";
 import { runPool } from "./util/pool.js";
+import { collectPackageEntrypoints, resolveAgainstKnownPaths } from "./util/package-entrypoints.js";
+import { loadPathAliases } from "./graph/aliases.js";
 import { type Ctx, type FileKind, type FileRecord, type Finding, type Tier } from "./types.js";
 
 // Public semver surface — ARCHITECTURE.md §11. Keep these root exports
@@ -64,6 +66,16 @@ async function sniff(absPath: string): Promise<Buffer | undefined> {
     }
   } catch {
     return undefined;
+  }
+}
+
+/** Read package.json main/bin/exports as entrypoint seeds — string fields only, never executed. */
+async function loadPackageEntrypointSpecs(absRoot: string): Promise<string[]> {
+  try {
+    const raw = await fs.readFile(path.join(absRoot, "package.json"), "utf8");
+    return collectPackageEntrypoints(JSON.parse(raw) as unknown);
+  } catch {
+    return [];
   }
 }
 
@@ -157,7 +169,9 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
   const discoveredP = discover(absRoot);
   const configP = loadConfig(absRoot);
   const cacheP = loadCache(absRoot);
-  const [discovered, config, cache] = await Promise.all([
+  const packageEntrypointsP = loadPackageEntrypointSpecs(absRoot);
+  const pathAliasesP = loadPathAliases(absRoot);
+  const [discovered, config, cache, packageEntrypointSpecs, pathAliases] = await Promise.all([
     discoveredP.then((v) => {
       mark("discover", t);
       return v;
@@ -167,8 +181,10 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
       mark("loadCache", t);
       return v;
     }),
+    packageEntrypointsP,
+    pathAliasesP,
   ]);
-  mark("discover+config+cache", t);
+  mark("discover+config+cache+package.json+aliases", t);
 
   t = performance.now();
   const kinds = new Map<string, ReturnType<typeof classify>>();
@@ -264,7 +280,12 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
   const [history, gitAvailable, graphResult] = await Promise.all([
     loadHistory(absRoot),
     isGitRepo(absRoot),
-    buildGraph(graphInputs, { getCached: getCachedModuleInfo, prefetched }),
+    buildGraph(graphInputs, {
+      getCached: getCachedModuleInfo,
+      prefetched,
+      packageEntrypoints: packageEntrypointSpecs,
+      ...(pathAliases ? { pathAliases } : {}),
+    }),
     runPool(sampledToMeasure, async (f) => {
       const kind = kindOf(f.path);
       const tier = (tiers.get(f.path) ?? 1) as Tier;
@@ -321,7 +342,21 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
 
   const budget = opts.budget ?? config.budget;
   const budgetExplicit = opts.budget !== undefined || config.budgetExplicit;
-  const ctx: Ctx = { root: absRoot, gitAvailable, budget, now: Math.floor(Date.now() / 1000), cadence: config.cadence };
+  const knownPaths = new Set(files.map((f) => f.path));
+  const packageEntrypoints = new Set<string>();
+  for (const spec of packageEntrypointSpecs) {
+    const resolved = resolveAgainstKnownPaths(spec, knownPaths);
+    if (resolved) packageEntrypoints.add(resolved);
+  }
+
+  const ctx: Ctx = {
+    root: absRoot,
+    gitAvailable,
+    budget,
+    now: Math.floor(Date.now() / 1000),
+    cadence: config.cadence,
+    packageEntrypoints,
+  };
   t = performance.now();
   const findings = runAll(files, ctx);
   mark("runAll (detectors)", t);

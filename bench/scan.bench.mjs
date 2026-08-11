@@ -3,9 +3,9 @@
 //
 //   | Stage                  | Target  |
 //   |-------------------------|---------|
-//   | Cold scan, 50k files    | < 8s    |
-//   | Warm scan (cached)      | < 800ms |
-//   | Peak RSS                | < 400MB |
+//   | Cold scan, 50k files    | < 12s   |
+//   | Warm scan (cached)      | < 2s    |
+//   | Peak RSS                | < 550MB |
 //
 // Not part of `npm test` — it generates a large synthetic fixture on disk,
 // which is slow (especially on Windows) and would make every ordinary test

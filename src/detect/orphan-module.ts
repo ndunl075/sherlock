@@ -1,11 +1,9 @@
 // `orphan-module` detector — ARCHITECTURE.md §6.
 //
 // Signal: file unreachable from any entrypoint. Confidence source:
-// entrypoint inference quality — capped moderate here on purpose, since v1's
-// entrypoint set (graph/, util/entrypoints.ts) is a basename allowlist, not
-// package.json main/bin or tsconfig resolution. A real entrypoint with an
-// unconventional name reads as orphaned; that's the false-positive shape
-// this detector's confidence is admitting to.
+// entrypoint inference quality — basename allowlist + package.json
+// main/bin/exports (graph/). Path aliases / unconventional entrypoints that
+// aren't declared still false-positive; confidence stays moderate for that.
 
 import type { Detector, FileRecord, Finding } from "../types.js";
 
@@ -21,7 +19,7 @@ export const orphanModuleDetector: Detector = {
         path: file.path,
         detector: "orphan-module",
         confidence: CONFIDENCE,
-        reason: "unreachable from any inferred entrypoint via relative import edges",
+        reason: "unreachable from any inferred entrypoint via relative import/require edges",
         suggest: "review",
       });
     }
