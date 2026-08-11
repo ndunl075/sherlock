@@ -3,8 +3,8 @@
 //
 // No import graph existed when cold-and-costly needed this, so it's a
 // basename allowlist rather than anything derived from package.json
-// main/bin or tsconfig — same v1 approximation, now shared instead of
-// duplicated now that graph/ needs the identical heuristic.
+// main/bin or tsconfig — graph/ and cold-and-costly also accept
+// package.json entrypoints separately via collectPackageEntrypoints.
 
 import type { FileRecord, Tier } from "../types.js";
 

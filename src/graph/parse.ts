@@ -1,12 +1,10 @@
 // tree-sitter parsing — ARCHITECTURE.md §3 (graph/), §10 ("one grammar
 // interface across languages").
 //
-// v1 scope, deliberately narrow: JS/TS family only (.ts/.tsx/.js/.jsx/.mjs/
-// .cjs), ES module import/export syntax only. No CommonJS `require()`, no
-// dynamic `import()`, no path-alias resolution (tsconfig `paths`, webpack
-// aliases) — only relative specifiers (`./x`, `../x`) get resolved. Each of
-// those is a real gap for some repos; each is also a bounded, well-understood
-// one to close later behind this same interface without touching callers.
+// v1 scope: JS/TS family only (.ts/.tsx/.js/.jsx/.mjs/.cjs). Parses ES module
+// import/export, CommonJS `require()` / `module.exports` / `exports.*`, and
+// dynamic `import()`. No path-alias resolution (tsconfig `paths`, webpack
+// aliases) — only relative specifiers (`./x`, `../x`) get resolved downstream.
 
 import Parser from "tree-sitter";
 import TypeScriptLanguages from "tree-sitter-typescript";
@@ -119,6 +117,8 @@ export function tryFastParse(source: string): ModuleInfo | null {
   if (/\bexport\s+default\b/.test(source)) return null;
   if (/\bexport\s*[\*{]/.test(source)) return null;
   if (/\bfrom\s+['"]/.test(source)) return null;
+  if (/\brequire\s*\(/.test(source)) return null;
+  if (/\bmodule\.exports\b/.test(source) || /\bexports\./.test(source)) return null;
 
   const exportedNames = new Set<string>();
   FAST_EXPORT_DECL.lastIndex = 0;
@@ -215,9 +215,139 @@ export function parseModule(source: string, ext: string): ModuleInfo | null {
     }
   }
 
+  function stringFromArgs(args: Parser.SyntaxNode | null): string | undefined {
+    if (!args) return undefined;
+    const first = args.namedChildren[0];
+    if (!first) return undefined;
+    if (first.type === "string") return stringFieldText(first);
+    // template_string with no substitutions: `./x`
+    if (first.type === "template_string" && first.namedChildren.every((c) => c.type === "string_fragment")) {
+      return first.namedChildren.map((c) => c.text).join("");
+    }
+    return undefined;
+  }
+
+  function namesFromObjectPattern(pattern: Parser.SyntaxNode): string[] {
+    const names: string[] = [];
+    for (const child of pattern.namedChildren) {
+      if (child.type === "shorthand_property_identifier_pattern") names.push(child.text);
+      else if (child.type === "pair_pattern" || child.type === "object_assignment_pattern") {
+        const key = child.childForFieldName("key") ?? child.namedChildren[0];
+        if (key && (key.type === "property_identifier" || key.type === "identifier")) {
+          names.push(key.text);
+        }
+      }
+    }
+    return names;
+  }
+
+  /** `require('./x')` or `import('./x')` — relative only matter downstream. */
+  function visitCallExpression(node: Parser.SyntaxNode): void {
+    const fn = node.childForFieldName("function");
+    const args = node.childForFieldName("arguments");
+    if (!fn || !args) return;
+
+    const isRequire = fn.type === "identifier" && fn.text === "require";
+    const isDynamicImport = fn.type === "import";
+    if (!isRequire && !isDynamicImport) return;
+
+    const src = stringFromArgs(args);
+    if (!src) return;
+
+    // Prefer named bindings when the call is the RHS of a destructuring
+    // assignment: `const { a, b } = require('./x')`. Otherwise treat as a
+    // namespace/default consume so orphan/dead-export don't false-positive.
+    const parent = node.parent;
+    let names: string[] = [];
+    let namespace = true;
+    if (parent?.type === "variable_declarator") {
+      const binding = parent.childForFieldName("name");
+      if (binding?.type === "object_pattern") {
+        names = namesFromObjectPattern(binding);
+        namespace = names.length === 0;
+      } else if (binding?.type === "identifier") {
+        names = isDynamicImport ? ["__default__"] : [];
+        namespace = !isDynamicImport;
+      }
+    } else if (isDynamicImport) {
+      names = ["__default__"];
+      namespace = false;
+    }
+
+    imports.push({ source: src, names, namespace });
+  }
+
+  function namesFromObjectLiteral(obj: Parser.SyntaxNode): string[] {
+    const names: string[] = [];
+    for (const child of obj.namedChildren) {
+      if (child.type === "shorthand_property_identifier") names.push(child.text);
+      else if (child.type === "pair") {
+        const key = child.childForFieldName("key");
+        if (key && (key.type === "property_identifier" || key.type === "identifier" || key.type === "string")) {
+          names.push(key.type === "string" ? (stringFieldText(key) ?? key.text) : key.text);
+        }
+      }
+    }
+    return names;
+  }
+
+  function describeCjsExportLeft(
+    member: Parser.SyntaxNode,
+  ): { kind: "default" } | { kind: "named"; name: string } | undefined {
+    const obj = member.childForFieldName("object");
+    const prop = member.childForFieldName("property");
+    if (!obj || !prop) return undefined;
+
+    // exports.foo =
+    if (obj.type === "identifier" && obj.text === "exports") {
+      return { kind: "named", name: prop.text };
+    }
+
+    // module.exports =
+    if (obj.type === "identifier" && obj.text === "module" && prop.text === "exports") {
+      return { kind: "default" };
+    }
+
+    // module.exports.foo =
+    if (obj.type === "member_expression") {
+      const innerObj = obj.childForFieldName("object");
+      const innerProp = obj.childForFieldName("property");
+      if (
+        innerObj?.type === "identifier" &&
+        innerObj.text === "module" &&
+        innerProp?.text === "exports"
+      ) {
+        return { kind: "named", name: prop.text };
+      }
+    }
+    return undefined;
+  }
+
+  function visitAssignment(node: Parser.SyntaxNode): void {
+    const left = node.childForFieldName("left");
+    const right = node.childForFieldName("right");
+    if (!left || left.type !== "member_expression") return;
+
+    const target = describeCjsExportLeft(left);
+    if (!target) return;
+
+    if (target.kind === "default") {
+      if (right?.type === "object") {
+        for (const name of namesFromObjectLiteral(right)) exportedNames.add(name);
+      } else {
+        exportedNames.add("__default__");
+      }
+      return;
+    }
+
+    exportedNames.add(target.name);
+  }
+
   function visit(node: Parser.SyntaxNode): void {
     if (node.type === "import_statement") visitImport(node);
     else if (node.type === "export_statement") visitExport(node);
+    else if (node.type === "call_expression") visitCallExpression(node);
+    else if (node.type === "assignment_expression") visitAssignment(node);
     for (const child of node.namedChildren) visit(child);
   }
 

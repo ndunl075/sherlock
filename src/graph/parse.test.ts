@@ -18,11 +18,40 @@ test("tryFastParse: simple export function/const/class without imports", () => {
   assert.deepEqual(info?.reexports, []);
 });
 
-test("tryFastParse: declines imports, defaults, and re-exports", () => {
+test("tryFastParse: declines imports, defaults, re-exports, and CommonJS", () => {
   assert.equal(tryFastParse(`import { x } from "./a";\nexport function f() {}`), null);
   assert.equal(tryFastParse(`export default function f() {}`), null);
   assert.equal(tryFastParse(`export { x } from "./a";`), null);
   assert.equal(tryFastParse(`export * from "./a";`), null);
+  assert.equal(tryFastParse(`const x = require("./a");\nmodule.exports = x;`), null);
+});
+
+test("parseModule: CommonJS require and module.exports", () => {
+  const info = parseModule(
+    `
+const { foo, bar } = require("./lib");
+const whole = require("./whole");
+module.exports = { serve, helper };
+exports.extra = 1;
+`,
+    ".cjs",
+  )!;
+  assert.equal(info.imports.length, 2);
+  assert.deepEqual(info.imports[0], { source: "./lib", names: ["foo", "bar"], namespace: false });
+  assert.equal(info.imports[1]?.source, "./whole");
+  assert.equal(info.imports[1]?.namespace, true);
+  assert.deepEqual(info.exportedNames, new Set(["serve", "helper", "extra"]));
+});
+
+test("parseModule: module.exports = function marks __default__", () => {
+  const info = parseModule(`module.exports = function main() {}`, ".js")!;
+  assert.deepEqual(info.exportedNames, new Set(["__default__"]));
+});
+
+test("parseModule: dynamic import('./x') is an edge", () => {
+  const info = parseModule(`export async function load() { return import("./lazy"); }`, ".ts")!;
+  assert.equal(info.imports.length, 1);
+  assert.equal(info.imports[0]?.source, "./lazy");
 });
 
 test("parseModule: returns null for an unsupported extension", () => {

@@ -22,6 +22,7 @@ import { promises as fs } from "node:fs";
 import { parseModule, isGraphEligibleExt, type ModuleInfo } from "./parse.js";
 import { resolveRelative } from "../util/posix-path.js";
 import { isLikelyEntrypoint } from "../util/entrypoints.js";
+import { resolveAgainstKnownPaths } from "../util/package-entrypoints.js";
 import { runPool } from "../util/pool.js";
 import type { Tier } from "../types.js";
 
@@ -52,6 +53,11 @@ export interface BuildGraphOptions {
   getCached?: (path: string, bytes: number, mtimeMs: number) => ModuleInfo | undefined;
   /** ModuleInfos already parsed elsewhere (e.g. during exact measure) — skips read+parse for those paths */
   prefetched?: ReadonlyMap<string, ModuleInfo>;
+  /**
+   * Extra entrypoint paths from package.json main/bin/exports (repo-relative,
+   * may lack an extension). Resolved against known graph-eligible paths.
+   */
+  packageEntrypoints?: readonly string[];
 }
 
 const RESOLVE_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
@@ -161,14 +167,18 @@ export async function buildGraph(files: GraphInput[], opts: BuildGraphOptions = 
   });
 
   // reachability BFS from every inferred entrypoint, over the eligible set only
-  const reachable = new Set<string>();
-  const queue: string[] = [];
+  const entrypointPaths = new Set<string>();
   for (const file of eligible) {
-    if (isLikelyEntrypoint(file.path, file.tier)) {
-      reachable.add(file.path);
-      queue.push(file.path);
-    }
+    if (isLikelyEntrypoint(file.path, file.tier)) entrypointPaths.add(file.path);
   }
+  for (const raw of opts.packageEntrypoints ?? []) {
+    const resolved = resolveAgainstKnownPaths(raw, knownPaths);
+    if (resolved) entrypointPaths.add(resolved);
+  }
+
+  const reachable = new Set<string>();
+  const queue: string[] = [...entrypointPaths];
+  for (const p of entrypointPaths) reachable.add(p);
   while (queue.length > 0) {
     const cur = queue.shift();
     if (cur === undefined) continue;
@@ -181,7 +191,7 @@ export async function buildGraph(files: GraphInput[], opts: BuildGraphOptions = 
 
   const result = new Map<string, GraphSignal>();
   for (const file of eligible) {
-    const isEntrypoint = isLikelyEntrypoint(file.path, file.tier);
+    const isEntrypoint = entrypointPaths.has(file.path);
     const orphan = !isEntrypoint && !reachable.has(file.path);
 
     const exported = exportsByFile.get(file.path);

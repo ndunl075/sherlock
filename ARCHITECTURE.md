@@ -53,13 +53,13 @@ src/
     tokens.ts       tokenizer + sampling estimator
     tier.ts         T0/T1/T2 assignment (resolves @imports transitively)
   detect/           one file per signal; all implement Detector
-  graph/            ES module import graph via tree-sitter (JS/TS family)
+  graph/            ES + CJS + dynamic import() graph via tree-sitter (JS/TS family)
   history/          git log adapter: last-touched + 90d churn
   cache/            .sherlock/cache.json (tokens + per-file module parse)
   config/           .sherlockrc (budget, cadence)
   score/            waste model, ranking, budget rollups
   report/           table.ts | json.ts | ignore.ts (emits .claudeignore diff)
-  util/             pool, entrypoints, posix paths
+  util/             pool, entrypoints, package.json entry seeds, posix paths
 ```
 
 ---
@@ -202,7 +202,7 @@ they're cheap once I/O is done.
 | Choice | Why | Cost accepted |
 |---|---|---|
 | TypeScript / Node | `npx @ndunl075/sherlock` — installable CLI for the JS-heavy audience | Slower cold start than Go; bare `sherlock` on npm is unrelated |
-| tree-sitter for the graph | one grammar interface across languages | per-language grammar deps |
+| tree-sitter for the graph | one grammar interface across languages; ES + CJS + dynamic import() | per-language grammar deps; path aliases still unresolved |
 | Sampled tokenization | 10x speed for ~4% error | not exact outside T0 |
 | No auto-fix | trust; a wrong delete ends adoption | user must apply the patch |
 | Cache in `.sherlock/` | gitignored, per-clone, no global state | cold on fresh clone |
@@ -245,7 +245,7 @@ clone is a normal thing to do, so nothing in the scanned tree is trusted input:
 
 - No code from the scanned repo is loaded, required, or executed. Ever.
 - No config from the scanned repo grants privilege — `.sherlockrc` sets
-  thresholds and paths, never plugins, commands, or hooks.
+  thresholds (budget, cadence), never plugins, commands, or hooks.
 - Symlinks are not followed outside the repo root; resolved paths are re-checked
   against the root prefix before any read (guards `../` traversal).
 - Reads are bounded: per-file size cap, total-bytes cap, max walk depth. A 4GB
@@ -279,6 +279,6 @@ high and stated in CONTRIBUTING.
 
 Editor extensions · server/daemon mode · cross-repo aggregation · non-Claude/Cursor
 config formats · semantic dead-code (type-aware, needs a full type checker) ·
-MCP tool-schema residency · CommonJS `require()` / dynamic `import()` in the
-graph · section-level findings inside a single markdown file · telemetry of any
-kind.
+MCP tool-schema residency · path-alias resolution (tsconfig `paths` / bundler
+aliases) · section-level findings inside a single markdown file · telemetry of
+any kind.

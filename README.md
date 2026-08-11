@@ -65,11 +65,11 @@ Top trim          312k tok recoverable across 47 files
   IGNORE
   PATH                                              DETECTOR        CONF  REASON
   package-lock.json                                 generated       0.75  generated file — matches a known lockfile/build-output path pattern
-  vendor/sdk-bundle.js                              vendored        0.95  vendored path with no recent git churn
+  vendor/sdk-bundle.js                              vendored        0.90  vendored path, no commits in the last 90 days
 
   REVIEW
   PATH                                              DETECTOR        CONF  REASON
-  src/legacy/unused.ts                              orphan-module   0.55  unreachable from any inferred entrypoint via relative import edges
+  src/legacy/unused.ts                              orphan-module   0.55  unreachable from any inferred entrypoint via relative import/require edges
   docs/old-api.md                                   stale-doc       0.80  references 2 of 3 linked path(s) that no longer exist
 ```
 
@@ -87,7 +87,7 @@ chat. Three commitments, designed in rather than bolted on
   it at an untrusted clone is safe.
 - **It never emits file contents.** Findings are paths, metadata, and templated
   reasons. The cache stores no snippets. Detector reason templates are covered
-  by tests (see `generated.test.ts`).
+  by tests (see `content-leak.test.ts`).
 - **It makes no network requests.** No telemetry, no update check, no HTTP client
   in the dependency tree — auditable by inspection, not a separate hosts file.
 

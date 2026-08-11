@@ -54,6 +54,11 @@ export interface Ctx {
   now?: number;
   /** cadence weights, from .sherlockrc if set — see DEFAULT_CADENCE and §7 */
   cadence?: Record<Tier, number>;
+  /**
+   * Resolved package.json main/bin/exports paths (repo-relative) that exist in
+   * the scanned tree — cold-and-costly must not flag these as unused.
+   */
+  packageEntrypoints?: ReadonlySet<string>;
 }
 
 export interface Detector {

@@ -49,7 +49,8 @@ them:
 ## Local checks
 
 ```bash
-npm test          # typecheck + unit tests
+npm test          # build (tsc) + unit/e2e tests
+npm run typecheck # tsc --noEmit only
 npm run bench     # §9 50k-file cold/warm/RSS budgets (slow; not in CI)
 ```
 
