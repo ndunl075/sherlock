@@ -19,7 +19,8 @@ async function fixture(): Promise<{ root: string; files: GraphInput[] }> {
   for (const [rel, content] of specs) {
     const abs = path.join(root, ...rel.split("/"));
     await fs.writeFile(abs, content);
-    files.push({ path: rel, absPath: abs, tier: 1 });
+    const st = await fs.stat(abs);
+    files.push({ path: rel, absPath: abs, tier: 1, bytes: st.size, mtimeMs: st.mtimeMs });
   }
   return { root, files };
 }
@@ -27,8 +28,8 @@ async function fixture(): Promise<{ root: string; files: GraphInput[] }> {
 test("buildGraph: entrypoint is never orphan and never dead-export-flagged", async () => {
   const { root, files } = await fixture();
   try {
-    const graph = await buildGraph(files);
-    const entry = graph.get("src/index.ts");
+    const { signals } = await buildGraph(files);
+    const entry = signals.get("src/index.ts");
     assert.equal(entry?.orphan, false);
     assert.deepEqual(entry?.deadExports, []);
   } finally {
@@ -39,8 +40,8 @@ test("buildGraph: entrypoint is never orphan and never dead-export-flagged", asy
 test("buildGraph: a file reachable from an entrypoint is not orphan", async () => {
   const { root, files } = await fixture();
   try {
-    const graph = await buildGraph(files);
-    assert.equal(graph.get("src/lib.ts")?.orphan, false);
+    const { signals } = await buildGraph(files);
+    assert.equal(signals.get("src/lib.ts")?.orphan, false);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -49,8 +50,8 @@ test("buildGraph: a file reachable from an entrypoint is not orphan", async () =
 test("buildGraph: an unreferenced export is flagged dead, a used one is not", async () => {
   const { root, files } = await fixture();
   try {
-    const graph = await buildGraph(files);
-    assert.deepEqual(graph.get("src/lib.ts")?.deadExports, ["deadFn"]);
+    const { signals } = await buildGraph(files);
+    assert.deepEqual(signals.get("src/lib.ts")?.deadExports, ["deadFn"]);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -59,9 +60,9 @@ test("buildGraph: an unreferenced export is flagged dead, a used one is not", as
 test("buildGraph: a file nothing imports is orphan", async () => {
   const { root, files } = await fixture();
   try {
-    const graph = await buildGraph(files);
-    assert.equal(graph.get("src/orphan.ts")?.orphan, true);
-    assert.deepEqual(graph.get("src/orphan.ts")?.deadExports, ["nothing"]);
+    const { signals } = await buildGraph(files);
+    assert.equal(signals.get("src/orphan.ts")?.orphan, true);
+    assert.deepEqual(signals.get("src/orphan.ts")?.deadExports, ["nothing"]);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -78,11 +79,12 @@ test("buildGraph: a NodeNext-style '.js' specifier resolves against a '.ts' sour
     ] as [string, string][]) {
       const abs = path.join(root, ...rel.split("/"));
       await fs.writeFile(abs, content);
-      files.push({ path: rel, absPath: abs, tier: 1 });
+      const st = await fs.stat(abs);
+      files.push({ path: rel, absPath: abs, tier: 1, bytes: st.size, mtimeMs: st.mtimeMs });
     }
-    const graph = await buildGraph(files);
-    assert.equal(graph.get("src/types.ts")?.orphan, false);
-    assert.deepEqual(graph.get("src/types.ts")?.deadExports, []);
+    const { signals } = await buildGraph(files);
+    assert.equal(signals.get("src/types.ts")?.orphan, false);
+    assert.deepEqual(signals.get("src/types.ts")?.deadExports, []);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -91,11 +93,43 @@ test("buildGraph: a NodeNext-style '.js' specifier resolves against a '.ts' sour
 test("buildGraph: a re-exported name resolves the source edge and counts as used there", async () => {
   const { root, files } = await fixture();
   try {
-    const graph = await buildGraph(files);
+    const { signals } = await buildGraph(files);
     // reexported.ts's own export ("reused") is never imported by anyone -> dead
-    assert.deepEqual(graph.get("src/reexported.ts")?.deadExports, ["reused"]);
+    assert.deepEqual(signals.get("src/reexported.ts")?.deadExports, ["reused"]);
     // lib.ts's "used" is referenced both directly (index.ts) and via the re-export -> not dead
-    assert.deepEqual(graph.get("src/lib.ts")?.deadExports, ["deadFn"]);
+    assert.deepEqual(signals.get("src/lib.ts")?.deadExports, ["deadFn"]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("buildGraph: returns a moduleInfo per eligible file for the caller to cache", async () => {
+  const { root, files } = await fixture();
+  try {
+    const { moduleInfos } = await buildGraph(files);
+    assert.equal(moduleInfos.size, files.length);
+    assert.deepEqual(moduleInfos.get("src/lib.ts")?.exportedNames, new Set(["used", "deadFn"]));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("buildGraph: getCached is used instead of reading the file, and its result flows through unchanged", async () => {
+  const { root, files } = await fixture();
+  try {
+    const cachedInfo = { imports: [], reexports: [], exportedNames: new Set(["fake"]) };
+    let calls = 0;
+    const { signals, moduleInfos } = await buildGraph(files, {
+      getCached: (p) => {
+        if (p !== "src/orphan.ts") return undefined;
+        calls++;
+        return cachedInfo;
+      },
+    });
+    assert.equal(calls, 1);
+    assert.deepEqual(moduleInfos.get("src/orphan.ts"), cachedInfo);
+    // the cached info's export ("fake") isn't imported anywhere -> still flagged dead, proving it was actually used
+    assert.deepEqual(signals.get("src/orphan.ts")?.deadExports, ["fake"]);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

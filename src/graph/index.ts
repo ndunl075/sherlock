@@ -7,11 +7,22 @@
 // make dead-export's signal actively misleading. It's the one deliberate
 // second read pass in the pipeline — see graph/parse.ts for the rest of the
 // v1 scope trade-offs (relative imports only, no require()/dynamic import).
+//
+// The per-file parse (ModuleInfo — what one file imports/exports) is a pure
+// function of that file's own content, exactly as cacheable as tokens; only
+// the *aggregate* signals below (orphan, deadExports — reachability and
+// usage computed across every file's edges together) can't be, per
+// cache/index.ts's header. getCached lets the pipeline skip the read+parse
+// on a cache hit while still recomputing the aggregate fresh every run —
+// caught by benchmarking: without this, a "warm" scan on a JS/TS-heavy repo
+// wasn't meaningfully faster than cold, because this was still re-reading
+// and re-parsing every eligible file regardless of cache state.
 
 import { promises as fs } from "node:fs";
-import { parseModule, isGraphEligibleExt } from "./parse.js";
+import { parseModule, isGraphEligibleExt, type ModuleInfo } from "./parse.js";
 import { resolveRelative } from "../util/posix-path.js";
 import { isLikelyEntrypoint } from "../util/entrypoints.js";
+import { runPool } from "../util/pool.js";
 import type { Tier } from "../types.js";
 
 export interface GraphSignal {
@@ -25,6 +36,18 @@ export interface GraphInput {
   path: string;
   absPath: string;
   tier: Tier;
+  bytes: number;
+  mtimeMs: number;
+}
+
+export interface GraphResult {
+  signals: Map<string, GraphSignal>;
+  /** every graph-eligible file's parsed ModuleInfo (fresh or cache-reused) — the caller persists these for next run */
+  moduleInfos: Map<string, ModuleInfo>;
+}
+
+export interface BuildGraphOptions {
+  getCached?: (path: string, bytes: number, mtimeMs: number) => ModuleInfo | undefined;
 }
 
 const RESOLVE_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
@@ -66,7 +89,7 @@ function resolveSpecifier(spec: string, fromPath: string, knownPaths: ReadonlySe
   return undefined;
 }
 
-export async function buildGraph(files: GraphInput[]): Promise<Map<string, GraphSignal>> {
+export async function buildGraph(files: GraphInput[], opts: BuildGraphOptions = {}): Promise<GraphResult> {
   const eligible = files.filter((f) => isGraphEligibleExt(extnameOf(f.path)));
   const knownPaths = new Set(eligible.map((f) => f.path));
 
@@ -74,6 +97,7 @@ export async function buildGraph(files: GraphInput[]): Promise<Map<string, Graph
   const exportsByFile = new Map<string, Set<string>>();
   const usedNamesByTarget = new Map<string, Set<string>>();
   const fullyUsed = new Set<string>();
+  const moduleInfos = new Map<string, ModuleInfo>();
 
   const addEdge = (from: string, to: string) => {
     if (!edges.has(from)) edges.set(from, new Set());
@@ -84,16 +108,32 @@ export async function buildGraph(files: GraphInput[]): Promise<Map<string, Graph
     usedNamesByTarget.get(target)!.add(name);
   };
 
-  for (const file of eligible) {
-    let source: string;
-    try {
-      source = await fs.readFile(file.absPath, "utf8");
-    } catch {
-      continue; // unreadable — degrade, this file just contributes no graph data
+  // Concurrent, bounded — a plain `for...of` with `await` inside here was
+  // measured at ~31s of a ~41s cold scan on a 50k-file benchmark (§9),
+  // entirely I/O wait with nothing overlapping it. Fully unbounded
+  // Promise.all was the first fix and is wrong in a different way: at 48k
+  // files it hit EMFILE on 83% of reads, silently — each failure degrades to
+  // "this file contributes nothing," a wrong dead-export/orphan-module
+  // answer, not just a slow one. runPool keeps concurrency high without
+  // crossing that ceiling. Every map/set mutation below happens synchronously
+  // once a given file's read+parse resolves, so interleaving is otherwise
+  // safe: each file only touches its own moduleInfos/exportsByFile key, and
+  // addEdge/addUsed are plain synchronous Map/Set operations.
+  await runPool(eligible, async (file) => {
+    let info = opts.getCached?.(file.path, file.bytes, file.mtimeMs);
+    if (!info) {
+      let source: string;
+      try {
+        source = await fs.readFile(file.absPath, "utf8");
+      } catch {
+        return; // unreadable — degrade, this file just contributes no graph data
+      }
+      const parsed = parseModule(source, extnameOf(file.path));
+      if (!parsed) return;
+      info = parsed;
     }
 
-    const info = parseModule(source, extnameOf(file.path));
-    if (!info) continue;
+    moduleInfos.set(file.path, info);
     exportsByFile.set(file.path, info.exportedNames);
 
     for (const imp of info.imports) {
@@ -110,7 +150,7 @@ export async function buildGraph(files: GraphInput[]): Promise<Map<string, Graph
       if (re.star) fullyUsed.add(target);
       for (const name of re.names) addUsed(target, name);
     }
-  }
+  });
 
   // reachability BFS from every inferred entrypoint, over the eligible set only
   const reachable = new Set<string>();
@@ -146,5 +186,5 @@ export async function buildGraph(files: GraphInput[]): Promise<Map<string, Graph
     result.set(file.path, { orphan, deadExports });
   }
 
-  return result;
+  return { signals: result, moduleInfos };
 }
