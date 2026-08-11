@@ -16,6 +16,7 @@ import { looksGenerated } from "./measure/header.js";
 import { extractResolvedLinks } from "./measure/links.js";
 import { computeSimhash } from "./measure/simhash.js";
 import { loadHistory, isGitRepo } from "./history/index.js";
+import { buildGraph, type GraphInput } from "./graph/index.js";
 import { runAll } from "./detect/index.js";
 import { computeRollup, type Rollup } from "./score/index.js";
 import { DEFAULT_BUDGET, type Ctx, type FileRecord, type Finding } from "./types.js";
@@ -60,7 +61,16 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
   const kindOf = (relPath: string) => kinds.get(relPath) ?? "source";
 
   const tiers = await assignTiers(discovered, kindOf);
-  const [history, gitAvailable] = await Promise.all([loadHistory(absRoot), isGitRepo(absRoot)]);
+  const graphInputs: GraphInput[] = discovered.map((f) => ({
+    path: f.path,
+    absPath: f.absPath,
+    tier: tiers.get(f.path) ?? 1,
+  }));
+  const [history, gitAvailable, graph] = await Promise.all([
+    loadHistory(absRoot),
+    isGitRepo(absRoot),
+    buildGraph(graphInputs),
+  ]);
 
   const files: FileRecord[] = await Promise.all(
     discovered.map(async (f: DiscoveredFile) => {
@@ -84,6 +94,11 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
         if (links.length > 0) record.referencedPaths = links;
         const fingerprint = computeSimhash(headSample);
         if (fingerprint !== undefined) record.contentSimhash = fingerprint;
+      }
+      const g = graph.get(f.path);
+      if (g) {
+        record.orphanModule = g.orphan;
+        if (g.deadExports.length > 0) record.deadExportSymbols = g.deadExports;
       }
       return record;
     }),

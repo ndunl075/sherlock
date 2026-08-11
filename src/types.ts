@@ -36,6 +36,10 @@ export interface FileRecord {
   referencedPaths?: string[];
   /** 32-bit simhash of the doc's shingled prose (doc kind only, omitted when too short to fingerprint) */
   contentSimhash?: number;
+  /** unreachable from any inferred entrypoint via the import graph (JS/TS family only, see graph/) */
+  orphanModule?: boolean;
+  /** exported symbol names with zero inbound references anywhere in the repo (JS/TS family only) */
+  deadExportSymbols?: string[];
 }
 
 /** Shared read-only context passed to every detector. */
