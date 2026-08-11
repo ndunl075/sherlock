@@ -27,6 +27,25 @@ export function isGraphEligibleExt(ext: string): boolean {
   return EXT_LANGUAGE.has(ext);
 }
 
+// One Parser instance per language, reused across every file of that
+// language rather than constructed per call — Parser() has real
+// construction overhead (native/WASM resource binding), which is invisible
+// on a handful of files and dominates the cost of a full-repo scan once
+// there are thousands. Caught by the §9 benchmark: a "warm" scan wasn't
+// meaningfully faster than cold, because graph/ (deliberately uncached, see
+// cache/index.ts) was still paying per-file Parser construction on every run.
+const parserCache = new Map<unknown, Parser>();
+
+function getParser(language: unknown): Parser {
+  let parser = parserCache.get(language);
+  if (!parser) {
+    parser = new Parser();
+    parser.setLanguage(language as Parameters<Parser["setLanguage"]>[0]);
+    parserCache.set(language, parser);
+  }
+  return parser;
+}
+
 export interface ModuleImport {
   source: string; // raw specifier, unresolved
   /** symbol names pulled in; '__default__' for a default import */
@@ -87,10 +106,7 @@ export function parseModule(source: string, ext: string): ModuleInfo | null {
   const language = EXT_LANGUAGE.get(ext);
   if (!language) return null;
 
-  const parser = new Parser();
-  // tree-sitter's own bundled types declare setLanguage(language?: any) — the grammar
-  // packages ship no types of their own, so this is exactly as loose as upstream.
-  parser.setLanguage(language as Parameters<Parser["setLanguage"]>[0]);
+  const parser = getParser(language);
   const tree = parser.parse(source);
 
   const imports: ModuleImport[] = [];
