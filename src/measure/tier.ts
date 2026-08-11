@@ -12,32 +12,11 @@
 import { promises as fs } from "node:fs";
 import type { FileKind, Tier } from "../types.js";
 import type { DiscoveredFile } from "../discover/index.js";
+import { resolveRelative } from "../util/posix-path.js";
 
 const RESIDENT_BASENAMES = new Set(["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", ".cursorrules"]);
 const IMPORT_RE = /@([^\s()<>"'`]+\.mdx?)/g;
 const AMBIENT_KINDS: ReadonlySet<FileKind> = new Set(["vendored", "generated"]);
-
-function normalizePosix(p: string): string {
-  const out: string[] = [];
-  for (const part of p.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") out.pop();
-    else out.push(part);
-  }
-  return out.join("/");
-}
-
-function dirOf(relPath: string): string {
-  const i = relPath.lastIndexOf("/");
-  return i === -1 ? "" : relPath.slice(0, i);
-}
-
-/** Resolve one `@import` reference found inside `fromPath`, relative to that file's directory. */
-function resolveImport(raw: string, fromPath: string): string | null {
-  if (raw.startsWith("~")) return null; // home-relative — outside repo scope
-  if (raw.startsWith("/")) return normalizePosix(raw.slice(1));
-  return normalizePosix(`${dirOf(fromPath)}/${raw}`);
-}
 
 export async function assignTiers(
   files: DiscoveredFile[],
@@ -71,7 +50,7 @@ export async function assignTiers(
     for (const m of content.matchAll(IMPORT_RE)) {
       const raw = m[1];
       if (!raw) continue;
-      const resolved = resolveImport(raw, cur);
+      const resolved = resolveRelative(raw, cur);
       if (resolved && byPath.has(resolved) && tiers.get(resolved) !== 0) {
         tiers.set(resolved, 0);
         queue.push(resolved);

@@ -13,6 +13,7 @@ import { classify, needsContentSniff } from "./classify/index.js";
 import { assignTiers } from "./measure/tier.js";
 import { measureTokens } from "./measure/tokens.js";
 import { looksGenerated } from "./measure/header.js";
+import { extractResolvedLinks } from "./measure/links.js";
 import { loadHistory, isGitRepo } from "./history/index.js";
 import { runAll } from "./detect/index.js";
 import { computeRollup, type Rollup } from "./score/index.js";
@@ -77,6 +78,10 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
       if (hist?.lastCommit !== undefined) record.lastCommit = hist.lastCommit;
       if (hist?.commits90d !== undefined) record.commits90d = hist.commits90d;
       if (kind === "generated") record.generatedHeader = looksGenerated(headSample);
+      if (kind === "doc") {
+        const links = extractResolvedLinks(headSample, f.path);
+        if (links.length > 0) record.referencedPaths = links;
+      }
       return record;
     }),
   );

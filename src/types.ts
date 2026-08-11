@@ -32,6 +32,8 @@ export interface FileRecord {
   commits90d?: number;
   /** true when the head of the file matched a generated-file banner (`@generated`, `DO NOT EDIT`, ...) */
   generatedHeader?: boolean;
+  /** repo-relative paths this doc's markdown links resolve to (doc kind only); existence is the detector's job */
+  referencedPaths?: string[];
 }
 
 /** Shared read-only context passed to every detector. */
