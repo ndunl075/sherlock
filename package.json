@@ -23,5 +23,10 @@
   "author": "Nicolas Dunlap",
   "devDependencies": {
     "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-javascript": "^0.23.1",
+    "tree-sitter-typescript": "^0.21.2"
   }
 }
