@@ -22,9 +22,10 @@ test("classify: vendor/node_modules paths are vendored", () => {
   assert.equal(classify("node_modules/left-pad/index.js"), "vendored");
 });
 
-test("classify: fixtures directories are fixture", () => {
+test("classify: ordinary fixture directories are fixture while snapshots are generated", () => {
   assert.equal(classify("test/fixtures/sample.json"), "fixture");
-  assert.equal(classify("__snapshots__/App.test.js.snap"), "fixture");
+  assert.equal(classify("__snapshots__/App.test.js.snap"), "generated");
+  assert.equal(classify("db/migrations/001_init.sql"), "generated");
 });
 
 test("classify: markdown is doc", () => {

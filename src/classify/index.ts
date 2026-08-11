@@ -20,6 +20,7 @@ const LOCKFILE_NAMES = new Set([
 
 const GENERATED_DIR_SEGMENTS = new Set(["dist", "build", "generated", "out", ".next", "target"]);
 const GENERATED_SUFFIXES = [".pb.go", ".pb.js", ".pb.cc", ".pb.h"];
+const GENERATED_CONTENT_DIR_SEGMENTS = new Set(["snapshots", "__snapshots__", "migrations"]);
 
 const VENDORED_DIR_SEGMENTS = new Set(["vendor", "third_party", "node_modules"]);
 
@@ -61,6 +62,15 @@ export function isMinifiedPath(relPath: string): boolean {
   return /\.min\.[^/]+$/i.test(relPath);
 }
 
+/** Path-only generated-file signals used by both classification and detection. */
+export function isGeneratedPath(relPath: string): boolean {
+  const dirs = segments(relPath);
+  return LOCKFILE_NAMES.has(basename(relPath))
+    || isMinifiedPath(relPath)
+    || GENERATED_SUFFIXES.some((suffix) => relPath.endsWith(suffix))
+    || dirs.some((dir) => GENERATED_DIR_SEGMENTS.has(dir) || GENERATED_CONTENT_DIR_SEGMENTS.has(dir));
+}
+
 /** Cheap heuristic: a chunk with a NUL byte, or a high ratio of non-text bytes, reads as binary. */
 export function looksBinary(sample: Buffer): boolean {
   if (sample.length === 0) return false;
@@ -77,7 +87,7 @@ export function needsContentSniff(relPath: string): boolean {
   const ext = extname(relPath);
   if (BINARY_EXTENSIONS.has(ext) || DOC_EXTENSIONS.has(ext) || SOURCE_EXTENSIONS.has(ext)) return false;
   if (LOCKFILE_NAMES.has(basename(relPath))) return false;
-  if (isMinifiedPath(relPath) || GENERATED_SUFFIXES.some((suf) => relPath.endsWith(suf))) return false;
+  if (isGeneratedPath(relPath)) return false;
   const dirs = segments(relPath);
   if (dirs.some((d) => GENERATED_DIR_SEGMENTS.has(d) || VENDORED_DIR_SEGMENTS.has(d) || FIXTURE_DIR_SEGMENTS.has(d))) {
     return false;
@@ -93,9 +103,7 @@ export function classify(relPath: string, contentSample?: Buffer): FileKind {
   if (BINARY_EXTENSIONS.has(ext)) return "binary";
   if (contentSample && looksBinary(contentSample)) return "binary";
 
-  if (LOCKFILE_NAMES.has(name)) return "generated";
-  if (isMinifiedPath(relPath) || GENERATED_SUFFIXES.some((suf) => relPath.endsWith(suf))) return "generated";
-  if (dirs.some((d) => GENERATED_DIR_SEGMENTS.has(d))) return "generated";
+  if (isGeneratedPath(relPath)) return "generated";
 
   if (dirs.some((d) => VENDORED_DIR_SEGMENTS.has(d))) return "vendored";
 
