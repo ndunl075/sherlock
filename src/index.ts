@@ -14,6 +14,7 @@ import { assignTiers } from "./measure/tier.js";
 import { measureTokens } from "./measure/tokens.js";
 import { looksGenerated } from "./measure/header.js";
 import { extractResolvedLinks } from "./measure/links.js";
+import { computeSimhash } from "./measure/simhash.js";
 import { loadHistory, isGitRepo } from "./history/index.js";
 import { runAll } from "./detect/index.js";
 import { computeRollup, type Rollup } from "./score/index.js";
@@ -81,6 +82,8 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
       if (kind === "doc") {
         const links = extractResolvedLinks(headSample, f.path);
         if (links.length > 0) record.referencedPaths = links;
+        const fingerprint = computeSimhash(headSample);
+        if (fingerprint !== undefined) record.contentSimhash = fingerprint;
       }
       return record;
     }),

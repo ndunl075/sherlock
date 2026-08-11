@@ -34,6 +34,8 @@ export interface FileRecord {
   generatedHeader?: boolean;
   /** repo-relative paths this doc's markdown links resolve to (doc kind only); existence is the detector's job */
   referencedPaths?: string[];
+  /** 32-bit simhash of the doc's shingled prose (doc kind only, omitted when too short to fingerprint) */
+  contentSimhash?: number;
 }
 
 /** Shared read-only context passed to every detector. */
