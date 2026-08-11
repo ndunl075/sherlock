@@ -17,11 +17,13 @@ test("measureTokens: small file is read in full and marked exact", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "sherlock-tokens-"));
   try {
     const p = path.join(dir, "small.ts");
-    await fs.writeFile(p, "export const x = 1;\n");
+    const content = "export const x = 1;\n";
+    await fs.writeFile(p, content);
     const st = await fs.stat(p);
     const result = await measureTokens({ path: "small.ts", absPath: p, bytes: st.size, mtimeMs: st.mtimeMs }, 1, "source");
     assert.equal(result.estimated, false);
     assert.ok(result.tokens > 0);
+    assert.equal(result.text, content);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -49,6 +51,7 @@ test("measureTokens: large tier-1 file is sampled and estimated", async () => {
     const result = await measureTokens({ path: "big.md", absPath: p, bytes: st.size, mtimeMs: st.mtimeMs }, 1, "doc");
     assert.equal(result.estimated, true);
     assert.ok(result.tokens > 0);
+    assert.equal(result.text, undefined);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

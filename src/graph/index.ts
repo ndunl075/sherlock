@@ -1,12 +1,12 @@
 // Import/require graph — ARCHITECTURE.md §3 (graph/), feeding
 // dead-export and orphan-module.
 //
-// This does its own full-content read per graph-eligible file rather than
-// reusing measure/'s head sample: exports and import statements can appear
-// anywhere in a file, not just the first 4KB, and getting that wrong would
-// make dead-export's signal actively misleading. It's the one deliberate
-// second read pass in the pipeline — see graph/parse.ts for the rest of the
-// v1 scope trade-offs (relative imports only, no require()/dynamic import).
+// Graph needs full file text (exports/imports can appear anywhere, not just
+// measure/'s 4KB head sample). The pipeline measures exact-eligible files
+// first and passes that in-memory text via GraphInput.source so this module
+// does not re-read those paths. Files still missing source (large sampled
+// ones, or callers that didn't pre-measure) are read here. Cache hits via
+// getCached skip both.
 //
 // The per-file parse (ModuleInfo — what one file imports/exports) is a pure
 // function of that file's own content, exactly as cacheable as tokens; only
@@ -38,6 +38,8 @@ export interface GraphInput {
   tier: Tier;
   bytes: number;
   mtimeMs: number;
+  /** In-memory full text from an earlier exact measure — skips the disk read when set */
+  source?: string;
 }
 
 export interface GraphResult {
@@ -122,11 +124,13 @@ export async function buildGraph(files: GraphInput[], opts: BuildGraphOptions = 
   await runPool(eligible, async (file) => {
     let info = opts.getCached?.(file.path, file.bytes, file.mtimeMs);
     if (!info) {
-      let source: string;
-      try {
-        source = await fs.readFile(file.absPath, "utf8");
-      } catch {
-        return; // unreadable — degrade, this file just contributes no graph data
+      let source = file.source;
+      if (source === undefined) {
+        try {
+          source = await fs.readFile(file.absPath, "utf8");
+        } catch {
+          return; // unreadable — degrade, this file just contributes no graph data
+        }
       }
       const parsed = parseModule(source, extnameOf(file.path));
       if (!parsed) return;

@@ -134,3 +134,28 @@ test("buildGraph: getCached is used instead of reading the file, and its result 
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("buildGraph: GraphInput.source is parsed without reading absPath", async () => {
+  const files: GraphInput[] = [
+    {
+      path: "src/index.ts",
+      absPath: "/nonexistent/src/index.ts",
+      tier: 0,
+      bytes: 40,
+      mtimeMs: 0,
+      source: `import { used } from "./lib";\nused();\n`,
+    },
+    {
+      path: "src/lib.ts",
+      absPath: "/nonexistent/src/lib.ts",
+      tier: 1,
+      bytes: 50,
+      mtimeMs: 0,
+      source: `export function used() {}\nexport function deadFn() {}\n`,
+    },
+  ];
+  const { signals, moduleInfos } = await buildGraph(files);
+  assert.equal(signals.get("src/lib.ts")?.orphan, false);
+  assert.deepEqual(signals.get("src/lib.ts")?.deadExports, ["deadFn"]);
+  assert.deepEqual(moduleInfos.get("src/lib.ts")?.exportedNames, new Set(["used", "deadFn"]));
+});

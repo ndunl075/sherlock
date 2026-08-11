@@ -38,7 +38,7 @@ function heuristicCountTokens(text: string): number {
 
 export const defaultTokenizer: Tokenizer = { countTokens: heuristicCountTokens };
 
-const SAMPLE_SIZE = 8192;
+export const SAMPLE_SIZE = 8192;
 const HEAD_SAMPLE_CHARS = 4096;
 
 export interface MeasureResult {
@@ -46,6 +46,19 @@ export interface MeasureResult {
   estimated: boolean;
   /** first slice of text actually read, for reuse by later signals (e.g. a generated-header sniff) — never the whole file */
   headSample: string;
+  /**
+   * Full file text when this measure was exact (tier 0 or ≤2×SAMPLE_SIZE).
+   * Present so the pipeline can hand the same bytes to graph/ without a second
+   * disk read. Omitted for sampled/binary/minified paths — callers must not
+   * assume it exists.
+   */
+  text?: string;
+}
+
+/** True when measureTokens will read the whole file (and return `text`). */
+export function willMeasureExact(bytes: number, tier: Tier, kind: FileKind, relPath: string): boolean {
+  if (kind === "binary" || isMinifiedPath(relPath)) return false;
+  return tier === 0 || bytes <= SAMPLE_SIZE * 2;
 }
 
 async function readWhole(absPath: string): Promise<string> {
@@ -68,11 +81,15 @@ export async function measureTokens(
     return { tokens: 0, estimated: true, headSample: "" };
   }
 
-  const exactEligible = tier === 0 || file.bytes <= SAMPLE_SIZE * 2;
-  if (exactEligible) {
+  if (willMeasureExact(file.bytes, tier, kind, file.path)) {
     try {
       const text = await readWhole(file.absPath);
-      return { tokens: tokenizer.countTokens(text), estimated: false, headSample: text.slice(0, HEAD_SAMPLE_CHARS) };
+      return {
+        tokens: tokenizer.countTokens(text),
+        estimated: false,
+        headSample: text.slice(0, HEAD_SAMPLE_CHARS),
+        text,
+      };
     } catch {
       return { tokens: 0, estimated: true, headSample: "" }; // unreadable — degrade rather than throw
     }

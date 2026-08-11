@@ -5,24 +5,30 @@
 // Single pass over the tree; everything downstream of discover() operates on
 // the same in-memory FileRecord[]. Detectors (detect/) run last, over the
 // completed record set, and never re-read the disk themselves.
+//
+// Measure/graph ordering is deliberate for I/O: exact-eligible files are
+// measured first so their full text can be handed to buildGraph without a
+// second disk read. Sampled files and history load in parallel with graph
+// construction; records are assembled only after both finish.
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { discover, type DiscoveredFile } from "./discover/index.js";
 import { classify, needsContentSniff } from "./classify/index.js";
 import { assignTiers } from "./measure/tier.js";
-import { measureTokens } from "./measure/tokens.js";
+import { measureTokens, willMeasureExact, type MeasureResult } from "./measure/tokens.js";
 import { looksGenerated } from "./measure/header.js";
 import { extractResolvedLinks } from "./measure/links.js";
 import { computeSimhash } from "./measure/simhash.js";
 import { loadHistory, isGitRepo } from "./history/index.js";
 import { buildGraph, type GraphInput } from "./graph/index.js";
+import { isGraphEligibleExt } from "./graph/parse.js";
 import { runAll } from "./detect/index.js";
 import { computeRollup, type Rollup } from "./score/index.js";
 import { loadConfig } from "./config/index.js";
 import { loadCache, saveCache, isCacheValid, type CacheEntry } from "./cache/index.js";
 import { runPool } from "./util/pool.js";
-import { type Ctx, type FileRecord, type Finding } from "./types.js";
+import { type Ctx, type FileKind, type FileRecord, type Finding, type Tier } from "./types.js";
 
 // Public semver surface — ARCHITECTURE.md §11. Keep these root exports
 // additive: detector packages must not need to reach into internal modules.
@@ -68,6 +74,66 @@ function mark(label: string, start: number): void {
   if (DEBUG_TIMING) process.stderr.write(`[timing] ${label}: ${(performance.now() - start).toFixed(0)}ms\n`);
 }
 
+interface MeasuredFields {
+  tokens: number;
+  estimated: boolean;
+  generatedHeader?: boolean;
+  referencedPaths?: string[];
+  contentSimhash?: number;
+  /** retained only long enough to feed buildGraph; dropped before FileRecord assembly */
+  text?: string;
+}
+
+function extnameOf(relPath: string): string {
+  const base = relPath.split("/").pop() ?? relPath;
+  const i = base.lastIndexOf(".");
+  return i <= 0 ? "" : base.slice(i).toLowerCase();
+}
+
+function deriveSignals(kind: FileKind, measured: MeasureResult, relPath: string): MeasuredFields {
+  const fields: MeasuredFields = {
+    tokens: measured.tokens,
+    estimated: measured.estimated,
+  };
+  if (kind === "generated") fields.generatedHeader = looksGenerated(measured.headSample);
+  if (kind === "doc") {
+    const links = extractResolvedLinks(measured.headSample, relPath);
+    if (links.length > 0) fields.referencedPaths = links;
+    const simhash = computeSimhash(measured.headSample);
+    if (simhash !== undefined) fields.contentSimhash = simhash;
+  }
+  if (measured.text !== undefined) fields.text = measured.text;
+  return fields;
+}
+
+function assembleRecord(
+  f: DiscoveredFile,
+  kind: FileKind,
+  tier: Tier,
+  measured: MeasuredFields,
+  hist: { lastCommit?: number; commits90d?: number } | undefined,
+  graph: { orphan: boolean; deadExports: string[] } | undefined,
+): FileRecord {
+  const record: FileRecord = {
+    path: f.path,
+    bytes: f.bytes,
+    tokens: measured.tokens,
+    estimated: measured.estimated,
+    kind,
+    tier,
+  };
+  if (hist?.lastCommit !== undefined) record.lastCommit = hist.lastCommit;
+  if (hist?.commits90d !== undefined) record.commits90d = hist.commits90d;
+  if (measured.generatedHeader !== undefined) record.generatedHeader = measured.generatedHeader;
+  if (measured.referencedPaths !== undefined) record.referencedPaths = measured.referencedPaths;
+  if (measured.contentSimhash !== undefined) record.contentSimhash = measured.contentSimhash;
+  if (graph) {
+    record.orphanModule = graph.orphan;
+    if (graph.deadExports.length > 0) record.deadExportSymbols = graph.deadExports;
+  }
+  return record;
+}
+
 export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanResult> {
   const absRoot = path.resolve(root);
   let t = performance.now();
@@ -86,13 +152,7 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
   t = performance.now();
   const tiers = await assignTiers(discovered, kindOf);
   mark("assignTiers", t);
-  const graphInputs: GraphInput[] = discovered.map((f) => ({
-    path: f.path,
-    absPath: f.absPath,
-    tier: tiers.get(f.path) ?? 1,
-    bytes: f.bytes,
-    mtimeMs: f.mtimeMs,
-  }));
+
   const getCachedModuleInfo = (p: string, bytes: number, mtimeMs: number) => {
     const entry = cache.get(p);
     if (!entry || entry.bytes !== bytes || entry.mtimeMs !== mtimeMs || !entry.moduleInfo) return undefined;
@@ -102,81 +162,112 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
       exportedNames: new Set(entry.moduleInfo.exportedNames),
     };
   };
+
+  const measuredByPath = new Map<string, MeasuredFields>();
+
+  // Phase 1: measure exact-eligible cache misses first. Their full text is
+  // what buildGraph would otherwise re-read from disk.
+  t = performance.now();
+  const exactToMeasure: DiscoveredFile[] = [];
+  const sampledToMeasure: DiscoveredFile[] = [];
+  for (const f of discovered) {
+    const kind = kindOf(f.path);
+    const tier = (tiers.get(f.path) ?? 1) as Tier;
+    const cached = cache.get(f.path);
+    if (isCacheValid(cached, f.bytes, f.mtimeMs, kind)) {
+      const fields: MeasuredFields = {
+        tokens: cached.tokens,
+        estimated: cached.estimated,
+      };
+      if (cached.generatedHeader !== undefined) fields.generatedHeader = cached.generatedHeader;
+      if (cached.referencedPaths !== undefined) fields.referencedPaths = cached.referencedPaths;
+      if (cached.contentSimhash !== undefined) fields.contentSimhash = cached.contentSimhash;
+      measuredByPath.set(f.path, fields);
+      continue;
+    }
+    if (willMeasureExact(f.bytes, tier, kind, f.path)) exactToMeasure.push(f);
+    else sampledToMeasure.push(f);
+  }
+
+  await runPool(exactToMeasure, async (f) => {
+    const kind = kindOf(f.path);
+    const tier = (tiers.get(f.path) ?? 1) as Tier;
+    const measured = await measureTokens(f, tier, kind);
+    measuredByPath.set(f.path, deriveSignals(kind, measured, f.path));
+  });
+  mark("measure exact", t);
+
+  // Only keep in-memory text for graph-eligible files that still need a parse.
+  // Holding every exact file's text until assembly would inflate peak RSS for
+  // no benefit on docs/non-JS paths.
+  const graphInputs: GraphInput[] = discovered.map((f) => {
+    const input: GraphInput = {
+      path: f.path,
+      absPath: f.absPath,
+      tier: (tiers.get(f.path) ?? 1) as Tier,
+      bytes: f.bytes,
+      mtimeMs: f.mtimeMs,
+    };
+    const needsParse =
+      isGraphEligibleExt(extnameOf(f.path)) && !getCachedModuleInfo(f.path, f.bytes, f.mtimeMs);
+    if (needsParse) {
+      const text = measuredByPath.get(f.path)?.text;
+      if (text !== undefined) input.source = text;
+    }
+    return input;
+  });
+
+  // Phase 2: graph + history in parallel with remaining sampled measures.
   t = performance.now();
   const [history, gitAvailable, graphResult] = await Promise.all([
     loadHistory(absRoot),
     isGitRepo(absRoot),
     buildGraph(graphInputs, { getCached: getCachedModuleInfo }),
+    runPool(sampledToMeasure, async (f) => {
+      const kind = kindOf(f.path);
+      const tier = (tiers.get(f.path) ?? 1) as Tier;
+      const measured = await measureTokens(f, tier, kind);
+      measuredByPath.set(f.path, deriveSignals(kind, measured, f.path));
+    }).then(() => undefined),
   ]);
-  mark("history+git+buildGraph", t);
+  mark("history+git+buildGraph+sample measure", t);
   const { signals: graph, moduleInfos } = graphResult;
 
-  const newCache = new Map<string, CacheEntry>();
+  // Drop in-memory sources now that parse is done — never land in cache/records (§12).
+  for (const input of graphInputs) delete input.source;
+  for (const fields of measuredByPath.values()) delete fields.text;
+
+  // Phase 3: assemble FileRecords + cache entries from measured fields + graph.
   t = performance.now();
-
-  // Bounded, not unbounded Promise.all — see graph/index.ts's comment on
-  // runPool for why: fully unbounded concurrency across every discovered
-  // file hits the OS's open-file-descriptor ceiling on large repos and fails
-  // silently (EMFILE), not loudly.
-  const files: FileRecord[] = await runPool(discovered, async (f: DiscoveredFile) => {
+  const newCache = new Map<string, CacheEntry>();
+  const files: FileRecord[] = discovered.map((f) => {
     const kind = kindOf(f.path);
-    const tier = tiers.get(f.path) ?? 1;
+    const tier = (tiers.get(f.path) ?? 1) as Tier;
+    const measured = measuredByPath.get(f.path) ?? { tokens: 0, estimated: true };
 
-    const cached = cache.get(f.path);
-    let tokens: number;
-    let estimated: boolean;
-    let generatedHeader: boolean | undefined;
-    let referencedPaths: string[] | undefined;
-    let contentSimhash: number | undefined;
-
-    if (isCacheValid(cached, f.bytes, f.mtimeMs, kind)) {
-      // cache hit — no read, no tokenization, no header/link/simhash pass; this is §5's "warm run"
-      ({ tokens, estimated, generatedHeader, referencedPaths, contentSimhash } = cached);
-    } else {
-      const measured = await measureTokens(f, tier, kind);
-      tokens = measured.tokens;
-      estimated = measured.estimated;
-      if (kind === "generated") generatedHeader = looksGenerated(measured.headSample);
-      if (kind === "doc") {
-        const links = extractResolvedLinks(measured.headSample, f.path);
-        if (links.length > 0) referencedPaths = links;
-        contentSimhash = computeSimhash(measured.headSample);
-      }
-    }
-
-    const cacheEntry: CacheEntry = { mtimeMs: f.mtimeMs, bytes: f.bytes, tokens, estimated, kind };
-    if (generatedHeader !== undefined) cacheEntry.generatedHeader = generatedHeader;
-    if (referencedPaths !== undefined) cacheEntry.referencedPaths = referencedPaths;
-    if (contentSimhash !== undefined) cacheEntry.contentSimhash = contentSimhash;
+    const cacheEntry: CacheEntry = {
+      mtimeMs: f.mtimeMs,
+      bytes: f.bytes,
+      tokens: measured.tokens,
+      estimated: measured.estimated,
+      kind,
+    };
+    if (measured.generatedHeader !== undefined) cacheEntry.generatedHeader = measured.generatedHeader;
+    if (measured.referencedPaths !== undefined) cacheEntry.referencedPaths = measured.referencedPaths;
+    if (measured.contentSimhash !== undefined) cacheEntry.contentSimhash = measured.contentSimhash;
     const info = moduleInfos.get(f.path);
     if (info) {
-      cacheEntry.moduleInfo = { imports: info.imports, reexports: info.reexports, exportedNames: [...info.exportedNames] };
+      cacheEntry.moduleInfo = {
+        imports: info.imports,
+        reexports: info.reexports,
+        exportedNames: [...info.exportedNames],
+      };
     }
     newCache.set(f.path, cacheEntry);
 
-    const hist = history.get(f.path);
-    const record: FileRecord = {
-      path: f.path,
-      bytes: f.bytes,
-      tokens,
-      estimated,
-      kind,
-      tier,
-    };
-    if (hist?.lastCommit !== undefined) record.lastCommit = hist.lastCommit;
-    if (hist?.commits90d !== undefined) record.commits90d = hist.commits90d;
-    if (generatedHeader !== undefined) record.generatedHeader = generatedHeader;
-    if (referencedPaths !== undefined) record.referencedPaths = referencedPaths;
-    if (contentSimhash !== undefined) record.contentSimhash = contentSimhash;
-    // the aggregate orphan/deadExports signals are never cached, only the per-file parse above — see cache/index.ts
-    const g = graph.get(f.path);
-    if (g) {
-      record.orphanModule = g.orphan;
-      if (g.deadExports.length > 0) record.deadExportSymbols = g.deadExports;
-    }
-    return record;
+    return assembleRecord(f, kind, tier, measured, history.get(f.path), graph.get(f.path));
   });
-  mark("measure loop (runPool)", t);
+  mark("assemble records", t);
 
   t = performance.now();
   await saveCache(absRoot, newCache);
