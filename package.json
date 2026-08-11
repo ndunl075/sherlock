@@ -1,0 +1,27 @@
+{
+  "name": "sherlock",
+  "version": "0.1.0",
+  "description": "A context budget linter — scans a repo and reports which files are quietly taxing every AI coding session.",
+  "type": "module",
+  "bin": {
+    "sherlock": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test dist/**/*.test.js",
+    "dev": "tsc && node dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "author": "Nicolas Dunlap",
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
