@@ -56,5 +56,5 @@ test("measureTokens: large tier-1 file is sampled and estimated", async () => {
 
 test("measureTokens: binary kind is never tokenized", async () => {
   const result = await measureTokens({ path: "logo.png", absPath: "/nonexistent", bytes: 12345 }, 1, "binary");
-  assert.deepEqual(result, { tokens: 0, estimated: true });
+  assert.deepEqual(result, { tokens: 0, estimated: true, headSample: "" });
 });

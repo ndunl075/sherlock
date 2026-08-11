@@ -30,6 +30,8 @@ export interface FileRecord {
   /** epoch seconds; undefined = untracked by git */
   lastCommit?: number;
   commits90d?: number;
+  /** true when the head of the file matched a generated-file banner (`@generated`, `DO NOT EDIT`, ...) */
+  generatedHeader?: boolean;
 }
 
 /** Shared read-only context passed to every detector. */

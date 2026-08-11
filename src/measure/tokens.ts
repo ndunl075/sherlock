@@ -38,10 +38,13 @@ function heuristicCountTokens(text: string): number {
 export const defaultTokenizer: Tokenizer = { countTokens: heuristicCountTokens };
 
 const SAMPLE_SIZE = 8192;
+const HEAD_SAMPLE_CHARS = 4096;
 
 export interface MeasureResult {
   tokens: number;
   estimated: boolean;
+  /** first slice of text actually read, for reuse by later signals (e.g. a generated-header sniff) — never the whole file */
+  headSample: string;
 }
 
 async function readWhole(absPath: string): Promise<string> {
@@ -61,16 +64,16 @@ export async function measureTokens(
   tokenizer: Tokenizer = defaultTokenizer,
 ): Promise<MeasureResult> {
   if (kind === "binary") {
-    return { tokens: 0, estimated: true };
+    return { tokens: 0, estimated: true, headSample: "" };
   }
 
   const exactEligible = tier === 0 || file.bytes <= SAMPLE_SIZE * 2;
   if (exactEligible) {
     try {
       const text = await readWhole(file.absPath);
-      return { tokens: tokenizer.countTokens(text), estimated: false };
+      return { tokens: tokenizer.countTokens(text), estimated: false, headSample: text.slice(0, HEAD_SAMPLE_CHARS) };
     } catch {
-      return { tokens: 0, estimated: true }; // unreadable — degrade rather than throw
+      return { tokens: 0, estimated: true, headSample: "" }; // unreadable — degrade rather than throw
     }
   }
 
@@ -83,11 +86,12 @@ export async function measureTokens(
     const sampleText = head + mid;
     const sampleBytes = Buffer.byteLength(sampleText, "utf8");
     const sampleTokens = tokenizer.countTokens(sampleText);
-    if (sampleBytes === 0 || sampleTokens === 0) return { tokens: 0, estimated: true };
+    const headSample = head.slice(0, HEAD_SAMPLE_CHARS);
+    if (sampleBytes === 0 || sampleTokens === 0) return { tokens: 0, estimated: true, headSample };
     const bytesPerToken = sampleBytes / sampleTokens;
-    return { tokens: Math.round(file.bytes / bytesPerToken), estimated: true };
+    return { tokens: Math.round(file.bytes / bytesPerToken), estimated: true, headSample };
   } catch {
-    return { tokens: 0, estimated: true };
+    return { tokens: 0, estimated: true, headSample: "" };
   } finally {
     await fd?.close().catch(() => {});
   }
