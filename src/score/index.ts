@@ -51,7 +51,9 @@ export function computeRollup(files: FileRecord[], findings: Finding[], budget: 
   }
 
   ranked.sort((a, b) => b.waste - a.waste);
-  const recoverableTokens = ranked.reduce((sum, r) => sum + r.waste, 0);
+  // waste() applies a fractional cadence weight, so the sum needs rounding — token counts are
+  // otherwise always whole numbers throughout FileRecord/Rollup.
+  const recoverableTokens = Math.round(ranked.reduce((sum, r) => sum + r.waste, 0));
 
   const overBudget = residentTokens > budget;
   const overagePct = budget > 0 ? Math.round(((residentTokens - budget) / budget) * 100) : 0;

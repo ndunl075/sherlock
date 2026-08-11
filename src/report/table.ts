@@ -1,8 +1,7 @@
 // TTY report — ARCHITECTURE.md §8.
 //
-// Detectors aren't wired yet, so the ranked findings tables from the README
-// mockup are empty; this renders the rollup plus a "biggest resident files"
-// fallback so the report is still useful before detect/ exists.
+// Falls back to a "biggest resident files" listing when no detector fires on
+// this repo (findings is empty) so the report stays useful either way.
 
 import type { FileRecord, Finding } from "../types.js";
 import type { Rollup } from "../score/index.js";
@@ -10,9 +9,10 @@ import type { Rollup } from "../score/index.js";
 const BAR_WIDTH = 10;
 
 function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 100_000) return `${Math.round(n / 1000)}k`;
-  return n.toLocaleString("en-US");
+  const rounded = Math.round(n);
+  if (rounded >= 1_000_000) return `${(rounded / 1_000_000).toFixed(1)}M`;
+  if (rounded >= 100_000) return `${Math.round(rounded / 1000)}k`;
+  return rounded.toLocaleString("en-US");
 }
 
 function bar(resident: number, budget: number): string {
@@ -41,7 +41,7 @@ export function renderTable(rollup: Rollup, files: FileRecord[], findings: Findi
   }
   if (findings.length > 0) {
     lines.push(
-      `${pad("Top trim", 18)}${formatTokens(rollup.recoverableTokens)} tok recoverable across ${rollup.ranked.length} files`,
+      `${pad("Top trim", 18)}${formatTokens(rollup.recoverableTokens)} tok recoverable across ${rollup.ranked.length} file${rollup.ranked.length === 1 ? "" : "s"}`,
     );
   }
   lines.push("");

@@ -1,0 +1,21 @@
+// Detector registry — ARCHITECTURE.md §6.
+//
+// "Adding a detector = one file in detect/ + one line in its registry."
+// runAll() is what the pipeline calls; it's the only extension point that
+// needs to stay easy (CONTRIBUTING.md).
+
+import type { Ctx, Detector, FileRecord, Finding } from "../types.js";
+import { generatedDetector } from "./generated.js";
+
+export const detectors: Detector[] = [
+  generatedDetector,
+  // one line per new detector — see CONTRIBUTING.md
+];
+
+export function runAll(files: FileRecord[], ctx: Ctx): Finding[] {
+  const findings: Finding[] = [];
+  for (const detector of detectors) {
+    findings.push(...detector.run(files, ctx));
+  }
+  return findings;
+}

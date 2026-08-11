@@ -3,8 +3,8 @@
 //   discover ─→ classify ─→ measure ─→ detect ─→ score ─→ report
 //
 // Single pass over the tree; everything downstream of discover() operates on
-// the same in-memory FileRecord[]. detect/ is empty in this slice (no
-// detectors registered yet) — findings is always [] until that lands.
+// the same in-memory FileRecord[]. Detectors (detect/) run last, over the
+// completed record set, and never re-read the disk themselves.
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -12,9 +12,11 @@ import { discover, type DiscoveredFile } from "./discover/index.js";
 import { classify, needsContentSniff } from "./classify/index.js";
 import { assignTiers } from "./measure/tier.js";
 import { measureTokens } from "./measure/tokens.js";
-import { loadHistory } from "./history/index.js";
+import { looksGenerated } from "./measure/header.js";
+import { loadHistory, isGitRepo } from "./history/index.js";
+import { runAll } from "./detect/index.js";
 import { computeRollup, type Rollup } from "./score/index.js";
-import { DEFAULT_BUDGET, type FileRecord, type Finding } from "./types.js";
+import { DEFAULT_BUDGET, type Ctx, type FileRecord, type Finding } from "./types.js";
 
 const SNIFF_BYTES = 512;
 
@@ -56,13 +58,13 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
   const kindOf = (relPath: string) => kinds.get(relPath) ?? "source";
 
   const tiers = await assignTiers(discovered, kindOf);
-  const history = await loadHistory(absRoot);
+  const [history, gitAvailable] = await Promise.all([loadHistory(absRoot), isGitRepo(absRoot)]);
 
   const files: FileRecord[] = await Promise.all(
     discovered.map(async (f: DiscoveredFile) => {
       const kind = kindOf(f.path);
       const tier = tiers.get(f.path) ?? 1;
-      const { tokens, estimated } = await measureTokens(f, tier, kind);
+      const { tokens, estimated, headSample } = await measureTokens(f, tier, kind);
       const hist = history.get(f.path);
       const record: FileRecord = {
         path: f.path,
@@ -74,14 +76,16 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
       };
       if (hist?.lastCommit !== undefined) record.lastCommit = hist.lastCommit;
       if (hist?.commits90d !== undefined) record.commits90d = hist.commits90d;
+      if (kind === "generated") record.generatedHeader = looksGenerated(headSample);
       return record;
     }),
   );
 
-  // detect/ — no detectors registered yet
-  const findings: Finding[] = [];
+  const budget = opts.budget ?? DEFAULT_BUDGET;
+  const ctx: Ctx = { root: absRoot, gitAvailable, budget };
+  const findings = runAll(files, ctx);
 
-  const rollup = computeRollup(files, findings, opts.budget ?? DEFAULT_BUDGET);
+  const rollup = computeRollup(files, findings, budget);
 
   return { root: absRoot, files, findings, rollup };
 }
