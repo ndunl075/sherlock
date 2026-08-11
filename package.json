@@ -1,0 +1,42 @@
+{
+  "name": "sherlock",
+  "version": "0.1.0",
+  "description": "A context budget linter — scans a repo and reports which files are quietly taxing every AI coding session.",
+  "type": "module",
+  "bin": {
+    "sherlock": "dist/bin.mjs"
+  },
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').copyFileSync('src/bin.mjs','dist/bin.mjs')\"",
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "dev": "npm run build && node --import ./bench/set-uv.mjs dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "bench": "npm run build && node --expose-gc --import ./bench/set-uv.mjs bench/scan.bench.mjs"
+  },
+  "license": "MIT",
+  "author": "Nicolas Dunlap",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ndunl075/sherlock.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ndunl075/sherlock/security/advisories"
+  },
+  "homepage": "https://github.com/ndunl075/sherlock#readme",
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-javascript": "^0.23.1",
+    "tree-sitter-typescript": "^0.21.2"
+  }
+}

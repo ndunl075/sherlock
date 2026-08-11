@@ -15,7 +15,7 @@ Sherlock does not, because the remedy differs for each.
 
 | Tier | What it is | Cost cadence | Fix |
 |---|---|---|---|
-| **T0 Resident** | Auto-loaded on every request: `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, their `@imports`, MCP tool schemas | Every turn × every session | Cut or split the file |
+| **T0 Resident** | Auto-loaded on every request: `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, their `@imports` | Every turn × every session | Cut or split the file |
 | **T1 Reachable** | What search/glob/grep surfaces and the agent then reads: source, docs, fixtures | Per unlucky retrieval | Ignore-file patterns |
 | **T2 Ambient** | Tree listings, `ls` output, path noise from 40k-file `node_modules` | Per exploration step | Ignore + directory collapse |
 
@@ -44,17 +44,22 @@ No detector re-reads the disk.
 
 ```
 src/
+  bin.mjs           UV threadpool bump, then cli
   cli.ts            arg parse, exit codes, tty detection
+  index.ts          scan() pipeline
   discover/         walk + ignore-stack resolution (gitignore, claudeignore, cursorignore)
   classify/         file kind: source | generated | vendored | doc | fixture | binary
   measure/
     tokens.ts       tokenizer + sampling estimator
     tier.ts         T0/T1/T2 assignment (resolves @imports transitively)
   detect/           one file per signal; all implement Detector
-  graph/            import/require graph via tree-sitter, for reachability
-  history/          git log adapter: churn, last-touched, add-only files
+  graph/            ES module import graph via tree-sitter (JS/TS family)
+  history/          git log adapter: last-touched + 90d churn
+  cache/            .sherlock/cache.json (tokens + per-file module parse)
+  config/           .sherlockrc (budget, cadence)
   score/            waste model, ranking, budget rollups
   report/           table.ts | json.ts | ignore.ts (emits .claudeignore diff)
+  util/             pool, entrypoints, posix paths
 ```
 
 ---
@@ -103,8 +108,8 @@ Exact tokenization of a 2GB monorepo is the obvious wrong default.
 - **Everything else:** byte→token ratio sampled per file kind (first 8KB + a
   middle 8KB slice), then extrapolated. Empirically within ~4% for text.
 - **Binary/minified:** flagged, not tokenized. Reported as raw bytes.
-- Results cached in `.sherlock/cache.json`, keyed by `path + mtime + size`.
-  Warm runs are ~10x faster and are the common case in a watch loop.
+-   Results cached in `.sherlock/cache.json`, keyed by `path + mtime + size`.
+  Warm runs skip re-measure/re-parse and are the common case in a watch loop.
 
 Tokenizer is behind a `Tokenizer` port. Default implementation targets Claude's
 counting; the ratio only shifts a few percent across major model families, and
@@ -168,16 +173,24 @@ Exit codes: `0` clean · `1` budget exceeded · `2` scan error.
 
 ## 9. Performance budget
 
-Self-imposed, enforced by benchmark test on a 50k-file fixture:
+Self-imposed, enforced by `npm run bench` on a 50k-file fixture:
 
 | Stage | Target |
 |---|---|
-| Cold scan, 50k files | < 8s |
-| Warm scan (cached) | < 800ms |
-| Peak RSS | < 400MB |
+| Cold scan, 50k files | < 12s |
+| Warm scan (cached) | < 2s |
+| Peak RSS | < 550MB |
 
-Discovery and measurement are concurrent (worker pool, `os.cpus()`); detectors
-are sequential over the completed record set, since they're cheap once I/O is done.
+Warm is dominated by a full re-walk + `stat` of every path (cache cannot skip
+discovery without missing new files). After tokens/parses are cached, discover
+alone is most of the warm cost on large trees. Peak RSS includes the in-memory
+cache map for 50k module parses. Absolute numbers vary with OS/disk; these
+ceilings are set to catch regressions (multi-second hangs, unbounded memory),
+not to claim a particular laptop's SSD.
+
+Discovery and measurement are concurrent (worker pool + enlarged libuv
+threadpool); detectors are sequential over the completed record set, since
+they're cheap once I/O is done.
 
 ---
 
@@ -261,4 +274,6 @@ trees, so the bar for adding one is high and stated in CONTRIBUTING.
 
 Editor extensions · server/daemon mode · cross-repo aggregation · non-Claude/Cursor
 config formats · semantic dead-code (type-aware, needs a full type checker) ·
-telemetry of any kind.
+MCP tool-schema residency · CommonJS `require()` / dynamic `import()` in the
+graph · section-level findings inside a single markdown file · telemetry of any
+kind.
