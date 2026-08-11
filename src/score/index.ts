@@ -2,10 +2,9 @@
 //
 // waste(f) = tokens(f) × maxConfidence(findings(f)) × cadence(tier(f))
 //
-// No detectors are wired yet (that's the next slice), so `waste()` and the
-// "top trim" ranking below are exercised with an empty Finding[] for now —
-// the shape is real, the numbers just have nothing to rank until detect/
-// lands.
+// cadence defaults to DEFAULT_CADENCE but is a computeRollup() parameter —
+// §7 calls the weights "config, not constants" and .sherlockrc (config/) can
+// override them per repo.
 
 import { DEFAULT_BUDGET, DEFAULT_CADENCE, type FileRecord, type Finding, type Tier } from "../types.js";
 
@@ -34,7 +33,12 @@ export interface Rollup {
   recoverableTokens: number;
 }
 
-export function computeRollup(files: FileRecord[], findings: Finding[], budget: number = DEFAULT_BUDGET): Rollup {
+export function computeRollup(
+  files: FileRecord[],
+  findings: Finding[],
+  budget: number = DEFAULT_BUDGET,
+  cadence: Record<Tier, number> = DEFAULT_CADENCE,
+): Rollup {
   let residentTokens = 0;
   let reachableTokens = 0;
   let ambientTokens = 0;
@@ -46,7 +50,7 @@ export function computeRollup(files: FileRecord[], findings: Finding[], budget: 
     else if (f.tier === 1) reachableTokens += f.tokens;
     else ambientTokens += f.tokens;
 
-    const w = waste(f, findings);
+    const w = waste(f, findings, cadence);
     if (w > 0) ranked.push({ path: f.path, waste: w });
   }
 

@@ -19,7 +19,8 @@ import { loadHistory, isGitRepo } from "./history/index.js";
 import { buildGraph, type GraphInput } from "./graph/index.js";
 import { runAll } from "./detect/index.js";
 import { computeRollup, type Rollup } from "./score/index.js";
-import { DEFAULT_BUDGET, type Ctx, type FileRecord, type Finding } from "./types.js";
+import { loadConfig } from "./config/index.js";
+import { type Ctx, type FileRecord, type Finding } from "./types.js";
 
 const SNIFF_BYTES = 512;
 
@@ -47,11 +48,13 @@ export interface ScanResult {
   files: FileRecord[];
   findings: Finding[];
   rollup: Rollup;
+  /** true when the effective budget came from --budget or .sherlockrc, not the bare DEFAULT_BUDGET fallback */
+  budgetExplicit: boolean;
 }
 
 export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanResult> {
   const absRoot = path.resolve(root);
-  const discovered = await discover(absRoot);
+  const [discovered, config] = await Promise.all([discover(absRoot), loadConfig(absRoot)]);
 
   const kinds = new Map<string, ReturnType<typeof classify>>();
   for (const f of discovered) {
@@ -104,11 +107,12 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
     }),
   );
 
-  const budget = opts.budget ?? DEFAULT_BUDGET;
-  const ctx: Ctx = { root: absRoot, gitAvailable, budget, now: Math.floor(Date.now() / 1000) };
+  const budget = opts.budget ?? config.budget;
+  const budgetExplicit = opts.budget !== undefined || config.budgetExplicit;
+  const ctx: Ctx = { root: absRoot, gitAvailable, budget, now: Math.floor(Date.now() / 1000), cadence: config.cadence };
   const findings = runAll(files, ctx);
 
-  const rollup = computeRollup(files, findings, budget);
+  const rollup = computeRollup(files, findings, budget, config.cadence);
 
-  return { root: absRoot, files, findings, rollup };
+  return { root: absRoot, files, findings, rollup, budgetExplicit };
 }

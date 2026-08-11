@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // CLI — ARCHITECTURE.md §3 (cli.ts), §8 (output), §9 exit codes.
 //
-// Exit codes: 0 clean · 1 budget exceeded (only when --budget is passed
-// explicitly — a bare `sherlock` never fails the process) · 2 scan error.
+// Exit codes: 0 clean · 1 budget exceeded (only when a budget was set
+// explicitly — via --budget or .sherlockrc; a bare `sherlock` never fails
+// the process) · 2 scan error.
 
 import process from "node:process";
 import { scan } from "./index.js";
 import { renderTable } from "./report/table.js";
 import { renderJson } from "./report/json.js";
-import { DEFAULT_BUDGET } from "./types.js";
 
 interface Args {
   root: string;
@@ -53,7 +53,11 @@ Usage:
 Options:
   --json          machine-readable output (stable schema, see ARCHITECTURE.md §11)
   --budget <n>    resident-context budget in tokens; CI gate when set
+                  (overrides .sherlockrc's "budget" key if both are present)
   -h, --help      show this help
+
+.sherlockrc (JSON, repo root) can also set "budget" and "cadence" — see
+ARCHITECTURE.md §11. Either source enables the exit-1 CI gate.
 `;
 
 async function main(): Promise<number> {
@@ -71,7 +75,7 @@ async function main(): Promise<number> {
   }
 
   try {
-    const result = await scan(args.root, { budget: args.budget ?? DEFAULT_BUDGET });
+    const result = await scan(args.root, args.budget !== undefined ? { budget: args.budget } : {});
 
     if (args.json) {
       process.stdout.write(`${renderJson(result.root, result.rollup, result.findings)}\n`);
@@ -79,7 +83,7 @@ async function main(): Promise<number> {
       process.stdout.write(`${renderTable(result.rollup, result.files, result.findings)}\n`);
     }
 
-    if (args.budget !== undefined && result.rollup.overBudget) return 1;
+    if (result.budgetExplicit && result.rollup.overBudget) return 1;
     return 0;
   } catch (err) {
     process.stderr.write(`sherlock: scan failed: ${(err as Error).message}\n`);

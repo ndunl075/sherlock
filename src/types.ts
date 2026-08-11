@@ -52,6 +52,8 @@ export interface Ctx {
   budget?: number;
   /** epoch seconds treated as "now" — injectable so age-based detectors are deterministic in tests */
   now?: number;
+  /** cadence weights, from .sherlockrc if set — see DEFAULT_CADENCE and §7 */
+  cadence?: Record<Tier, number>;
 }
 
 export interface Detector {
