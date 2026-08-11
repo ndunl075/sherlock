@@ -40,6 +40,18 @@ const SNIFF_BYTES = 512;
 /** Higher than util/pool's default — exact measure+parse interleaves tiny-file IO with tree-sitter CPU. */
 const MEASURE_PARSE_CONCURRENCY = Math.max(64, os.cpus().length * 16);
 
+/**
+ * libuv's default threadpool is 4. Our measure/discover pools schedule far more
+ * concurrent fs.readFile/stat work than that, so without a bump every "parallel"
+ * read still queues on four workers — invisible at hundreds of files, dominant
+ * at 50k (§9). Set before the first fs op in this process; no-ops if the user
+ * already chose a value.
+ */
+function ensureUvThreadpool(): void {
+  if (process.env.UV_THREADPOOL_SIZE) return;
+  process.env.UV_THREADPOOL_SIZE = String(MEASURE_PARSE_CONCURRENCY);
+}
+
 async function sniff(absPath: string): Promise<Buffer | undefined> {
   try {
     const fd = await fs.open(absPath, "r");
@@ -139,6 +151,7 @@ function assembleRecord(
 }
 
 export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanResult> {
+  ensureUvThreadpool();
   const absRoot = path.resolve(root);
   let t = performance.now();
   const discoveredP = discover(absRoot);
@@ -300,6 +313,8 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
   // Warm runs with a fully valid cache still used to rewrite the entire
   // .sherlock/cache.json (JSON.stringify of 50k moduleInfo entries) — pure
   // overhead on the §9 warm budget. Skip when nothing changed.
+  // JSON.stringify is sync and dominates saveCache, so overlapping it with
+  // detectors does not help — keep the write after scoring inputs are ready.
   t = performance.now();
   if (newCache) await saveCache(absRoot, newCache);
   mark("saveCache", t);

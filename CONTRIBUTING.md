@@ -1,7 +1,8 @@
 # Contributing
 
-The project is at design stage — the architecture is written, the code isn't.
-Two ways to help, in order of usefulness right now.
+The v1 scanner, nine detectors, cache, and CLI are implemented. The remaining
+hard gate is [ARCHITECTURE.md §9](ARCHITECTURE.md#9-performance-budget) —
+`npm run bench` on a 50k-file fixture. Two ways to help, in order of usefulness.
 
 ## 1. Argue with the model
 
@@ -45,6 +46,13 @@ them:
   probably shouldn't ship.
 - **Suggest, don't destroy.** `suggest` is a recommendation the user applies. No
   detector deletes, rewrites, or moves a file.
+
+## Local checks
+
+```bash
+npm test          # typecheck + unit tests
+npm run bench     # §9 50k-file cold/warm/RSS budgets (slow; not in CI)
+```
 
 ## Dependencies
 

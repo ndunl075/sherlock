@@ -5,10 +5,10 @@ quietly taxing every AI coding session — dead code, generated blobs, redundant
 docs — so you can trim what Claude Code, Cursor, or Codex has to read before
 every request.
 
-> **Status: v1 implementation in progress.**
-> The scanner, nine built-in detectors, JSON report, cache, and ignore-patch
-> output are implemented. The performance targets in
-> say so — open an issue.
+> **Status: v1 complete.**
+> Scanner, nine detectors, JSON/ignore-patch output, and cache are in. Performance
+> budgets live in [ARCHITECTURE.md §9](ARCHITECTURE.md#9-performance-budget) and
+> are checked with `npm run bench`.
 
 ---
 

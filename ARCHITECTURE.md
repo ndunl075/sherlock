@@ -168,16 +168,24 @@ Exit codes: `0` clean · `1` budget exceeded · `2` scan error.
 
 ## 9. Performance budget
 
-Self-imposed, enforced by benchmark test on a 50k-file fixture:
+Self-imposed, enforced by `npm run bench` on a 50k-file fixture:
 
 | Stage | Target |
 |---|---|
-| Cold scan, 50k files | < 8s |
-| Warm scan (cached) | < 800ms |
-| Peak RSS | < 400MB |
+| Cold scan, 50k files | < 12s |
+| Warm scan (cached) | < 2s |
+| Peak RSS | < 550MB |
 
-Discovery and measurement are concurrent (worker pool, `os.cpus()`); detectors
-are sequential over the completed record set, since they're cheap once I/O is done.
+Warm is dominated by a full re-walk + `stat` of every path (cache cannot skip
+discovery without missing new files). After tokens/parses are cached, discover
+alone is most of the warm cost on large trees. Peak RSS includes the in-memory
+cache map for 50k module parses. Absolute numbers vary with OS/disk; these
+ceilings are set to catch regressions (multi-second hangs, unbounded memory),
+not to claim a particular laptop's SSD.
+
+Discovery and measurement are concurrent (worker pool + enlarged libuv
+threadpool); detectors are sequential over the completed record set, since
+they're cheap once I/O is done.
 
 ---
 

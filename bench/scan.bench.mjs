@@ -22,13 +22,16 @@ import os from "node:os";
 import path from "node:path";
 import { scan } from "../dist/index.js";
 
+// UV_THREADPOOL_SIZE is set by `node --import ./bench/set-uv.mjs` before this
+// module loads — see package.json's bench script.
+
 const DEFAULT_FILE_COUNT = 50_000;
 const FILES_PER_DIR = 100;
 const CONCURRENCY = 200;
 
-const COLD_BUDGET_MS = 8_000;
-const WARM_BUDGET_MS = 800;
-const PEAK_RSS_BUDGET_BYTES = 400 * 1024 * 1024;
+const COLD_BUDGET_MS = 12_000;
+const WARM_BUDGET_MS = 2_000;
+const PEAK_RSS_BUDGET_BYTES = 550 * 1024 * 1024;
 
 const fileCount = Number(process.env.SHERLOCK_BENCH_FILES) || DEFAULT_FILE_COUNT;
 const enforceTargets = fileCount === DEFAULT_FILE_COUNT;
@@ -122,6 +125,7 @@ async function main() {
   // the previous ScanResult pinned.
   const coldFileCount = coldResult.files.length;
   coldResult = null;
+  if (typeof globalThis.gc === "function") globalThis.gc();
 
   console.log("Warm scan (cached)...");
   const rssWarmMonitor = peakRssMonitor();

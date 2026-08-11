@@ -4,7 +4,7 @@
   "description": "A context budget linter — scans a repo and reports which files are quietly taxing every AI coding session.",
   "type": "module",
   "bin": {
-    "sherlock": "dist/cli.js"
+    "sherlock": "dist/bin.mjs"
   },
   "main": "dist/index.js",
   "engines": {
@@ -14,11 +14,11 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
-    "test": "tsc && node --test dist/**/*.test.js",
-    "dev": "tsc && node dist/cli.js",
+    "build": "tsc && node -e \"require('fs').copyFileSync('src/bin.mjs','dist/bin.mjs')\"",
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "dev": "npm run build && node --import ./bench/set-uv.mjs dist/cli.js",
     "typecheck": "tsc --noEmit",
-    "bench": "tsc && node bench/scan.bench.mjs"
+    "bench": "npm run build && node --expose-gc --import ./bench/set-uv.mjs bench/scan.bench.mjs"
   },
   "license": "MIT",
   "author": "Nicolas Dunlap",

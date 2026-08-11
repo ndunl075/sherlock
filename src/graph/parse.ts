@@ -101,8 +101,46 @@ function namesFromDeclaration(decl: Parser.SyntaxNode): string[] {
   return [];
 }
 
+// Top-level `export function/class/const …` with no imports or re-exports.
+// The §9 50k fixture (and a lot of real leaf modules) are exactly this shape;
+// tree-sitter dominates cold time there, so a conservative regex path pays for
+// itself. Anything ambiguous falls through to the full parser.
+const FAST_EXPORT_DECL =
+  /^export\s+(?:async\s+)?(?:function\s*\*?|class|const|let|var|enum|interface|type)\s+([A-Za-z_$][\w$]*)/gm;
+
+/**
+ * Return a ModuleInfo without tree-sitter when the source is unambiguously a
+ * set of local export declarations. Returns null when the file needs a full
+ * parse (imports, re-exports, default exports, export lists, or `export`
+ * forms we didn't recognize).
+ */
+export function tryFastParse(source: string): ModuleInfo | null {
+  if (/\bimport\b/.test(source)) return null;
+  if (/\bexport\s+default\b/.test(source)) return null;
+  if (/\bexport\s*[\*{]/.test(source)) return null;
+  if (/\bfrom\s+['"]/.test(source)) return null;
+
+  const exportedNames = new Set<string>();
+  FAST_EXPORT_DECL.lastIndex = 0;
+  for (const match of source.matchAll(FAST_EXPORT_DECL)) {
+    const name = match[1];
+    if (name) exportedNames.add(name);
+  }
+
+  // An `export` we didn't capture means the shape is richer than this path
+  // handles — don't silently drop symbols.
+  if (/\bexport\b/.test(source) && exportedNames.size === 0) return null;
+
+  return { imports: [], reexports: [], exportedNames };
+}
+
 /** Parse one file's ES module surface: what it imports, what it re-exports, what it exports. Returns null for unsupported extensions. */
 export function parseModule(source: string, ext: string): ModuleInfo | null {
+  if (!EXT_LANGUAGE.has(ext)) return null;
+
+  const fast = tryFastParse(source);
+  if (fast) return fast;
+
   const language = EXT_LANGUAGE.get(ext);
   if (!language) return null;
 
