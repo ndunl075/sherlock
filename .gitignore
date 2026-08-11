@@ -1,0 +1,30 @@
+# Sherlock's own cache — contains a full path inventory of the scanned repo.
+# Never commit this; see SECURITY.md.
+.sherlock/
+
+# Dependencies / build
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Secrets — belt and braces
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

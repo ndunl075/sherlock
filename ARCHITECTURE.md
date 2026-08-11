@@ -193,7 +193,71 @@ are sequential over the completed record set, since they're cheap once I/O is do
 
 ---
 
-## 11. Not in v1
+## 11. Public surface
+
+Open source means some of the above stops being an implementation detail. These
+three are the semver contract; breaking them is a major bump:
+
+| Surface | Consumers | Stability |
+|---|---|---|
+| `Detector` / `Finding` | third-party detector packages | stable — additive fields only |
+| `--json` schema | CI pipelines, dashboards | stable — versioned via `schemaVersion` |
+| `.sherlockrc` keys | every user's repo | stable — unknown keys warn, never throw |
+
+Everything else — `FileRecord` internals, the graph builder, cache format,
+scoring constants — is explicitly internal and may change in any release. Cache
+files carry a format version and are silently discarded on mismatch rather than
+migrated.
+
+**v1 ships built-in detectors only.** Third-party detector loading is deferred,
+deliberately: resolving `sherlock-detector-*` from the *scanned* repo's
+`node_modules` would let any repo you point Sherlock at run code on your machine
+at `require` time. That is the ESLint-plugin supply-chain hole. When plugins land,
+they load only from paths named in the *user's own* config, and the docs will say
+plainly that a detector is trusted code, not a sandbox — Node has no honest
+in-process sandbox to offer here.
+
+---
+
+## 12. Security model
+
+Sherlock reads every file in a repo, including ones you'd never paste into a
+chat. The threat model follows from that.
+
+**Scanning a hostile repo must be safe.** `npx sherlock` on someone else's clone
+is a normal thing to do, so nothing in the scanned tree is trusted input:
+
+- No code from the scanned repo is loaded, required, or executed. Ever.
+- No config from the scanned repo grants privilege — `.sherlockrc` sets
+  thresholds and paths, never plugins, commands, or hooks.
+- Symlinks are not followed outside the repo root; resolved paths are re-checked
+  against the root prefix before any read (guards `../` traversal).
+- Reads are bounded: per-file size cap, total-bytes cap, max walk depth. A 4GB
+  file or a symlink cycle degrades the report, it doesn't hang the process.
+- Git history is read via `execFile` with an argument array — never a shell
+  string, so a branch or path containing `;` is inert.
+
+**File contents must not leak.** Detectors read content; nothing emits it:
+
+- `Finding.reason` is generated from templates + metadata. It never interpolates
+  file content, and this is enforced by test, not convention.
+- The dedup detector stores simhashes, not text. Hashes are one-way and are
+  discarded after the run.
+- `.sherlock/cache.json` holds path, mtime, size, token count — no content, no
+  snippets. It's added to `.gitignore` on first run.
+- No network I/O in any code path. No telemetry, no update check, no
+  "anonymous usage stats." The package declares zero runtime hosts, which makes
+  this auditable rather than a promise.
+
+**The `--json` and `--emit-ignore` outputs list paths from a private repo.**
+That's the intended output, but it means CI logs inherit it. Documented in the
+README so nobody pipes a scan into a public build log by accident.
+
+**Dependencies:** minimal and pinned; `npm audit` and a lockfile-diff review gate
+CI. Every added dependency is a new party with read access to users' source
+trees, so the bar for adding one is high and stated in CONTRIBUTING.
+
+## 13. Not in v1
 
 Editor extensions · server/daemon mode · cross-repo aggregation · non-Claude/Cursor
 config formats · semantic dead-code (type-aware, needs a full type checker) ·
