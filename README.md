@@ -5,21 +5,17 @@ quietly taxing every AI coding session — dead code, generated blobs, redundant
 docs — so you can trim what Claude Code, Cursor, or Codex has to read before
 every request.
 
-> **Status: v1.0.0 (ready to publish).**
+> **Status: v1.0.0 — published.**
 > Scanner, nine detectors, JSON/ignore-patch output, cache, §9 bench, CJS +
-> tsconfig paths graph, and contract tests are in. Package is `@ndunl075/sherlock`
-> — the bare name `sherlock` on npm is a different, unrelated package. Not
-> published yet; install from git until the npm release.
+> tsconfig paths graph, and contract tests are in. Package is
+> [`@ndunl075/sherlock`](https://www.npmjs.com/package/@ndunl075/sherlock) —
+> the bare name `sherlock` on npm is a different, unrelated package.
 
 ---
 
 ## Install
 
 ```bash
-# until the first npm release:
-npx github:ndunl075/sherlock
-
-# after publish:
 npx @ndunl075/sherlock
 npm i -g @ndunl075/sherlock
 ```
