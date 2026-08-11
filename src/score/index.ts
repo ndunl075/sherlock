@@ -33,6 +33,16 @@ export interface Rollup {
   recoverableTokens: number;
 }
 
+/** One max-confidence-per-path pass over findings, so computeRollup() is O(files + findings) instead of O(files × findings). */
+function maxConfidenceByPath(findings: Finding[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const f of findings) {
+    const cur = map.get(f.path) ?? 0;
+    if (f.confidence > cur) map.set(f.path, f.confidence);
+  }
+  return map;
+}
+
 export function computeRollup(
   files: FileRecord[],
   findings: Finding[],
@@ -45,12 +55,19 @@ export function computeRollup(
 
   const ranked: { path: string; waste: number }[] = [];
 
+  // Found by the §9 benchmark: calling waste()/maxConfidence() per file here
+  // re-scans the entire findings array every time. On a repo where most
+  // files get flagged (e.g. every file orphaned because none import each
+  // other), files × findings is billions of iterations — a JS "hang" that's
+  // really just a real, deterministic O(n²) computation finishing very slowly.
+  const confByPath = maxConfidenceByPath(findings);
+
   for (const f of files) {
     if (f.tier === 0) residentTokens += f.tokens;
     else if (f.tier === 1) reachableTokens += f.tokens;
     else ambientTokens += f.tokens;
 
-    const w = waste(f, findings, cadence);
+    const w = f.tokens * (confByPath.get(f.path) ?? 0) * cadence[f.tier];
     if (w > 0) ranked.push({ path: f.path, waste: w });
   }
 

@@ -54,3 +54,28 @@ test("computeRollup: ranked list is sorted by waste, highest first", () => {
   assert.equal(rollup.ranked[0]?.path, "b");
   assert.equal(rollup.ranked[1]?.path, "a");
 });
+
+test("computeRollup: stays fast when most files are flagged by multiple findings (regression, §9)", () => {
+  // Found by the real 50k-file benchmark: a per-file linear scan over
+  // findings made this O(files × findings) — with two findings per file at
+  // this size that's ~72M comparisons, which used to make computeRollup take
+  // tens of seconds (and would take much longer at real 50k scale). A
+  // regression here should show up as this test timing out, not as an
+  // assertion failure — node:test's default per-test timeout catches it.
+  const fileCount = 6000;
+  const files: FileRecord[] = [];
+  const findings: Finding[] = [];
+  for (let i = 0; i < fileCount; i++) {
+    const p = `src/file${i}.ts`;
+    files.push(record({ path: p, tokens: 100, tier: 1 }));
+    findings.push({ path: p, detector: "orphan-module", confidence: 0.55, reason: "r", suggest: "review" });
+    findings.push({ path: p, detector: "dead-export", confidence: 0.65, reason: "r", suggest: "review" });
+  }
+
+  const start = performance.now();
+  const rollup = computeRollup(files, findings, 3000);
+  const elapsedMs = performance.now() - start;
+
+  assert.equal(rollup.ranked.length, fileCount);
+  assert.ok(elapsedMs < 2000, `expected well under 2s, took ${elapsedMs.toFixed(0)}ms`);
+});
