@@ -9,12 +9,14 @@ import { generatedDetector } from "./generated.js";
 import { vendoredDetector } from "./vendored.js";
 import { t0OverweightDetector } from "./t0-overweight.js";
 import { bloatOutlierDetector } from "./bloat-outlier.js";
+import { staleDocDetector } from "./stale-doc.js";
 
 export const detectors: Detector[] = [
   generatedDetector,
   vendoredDetector,
   t0OverweightDetector,
   bloatOutlierDetector,
+  staleDocDetector,
   // one line per new detector — see CONTRIBUTING.md
 ];
 
