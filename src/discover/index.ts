@@ -9,9 +9,10 @@
 //  - reads are bounded: max walk depth, max file count — a symlink cycle or a
 //    pathologically deep tree degrades the report, it doesn't hang the process
 
-import { promises as fs, type Dirent } from "node:fs";
+import { promises as fs, type Dirent, type Stats } from "node:fs";
 import path from "node:path";
 import { baselineRules, isIgnored, parseIgnoreFile, type IgnoreRule } from "./ignore.js";
+import { runPool } from "../util/pool.js";
 
 export interface DiscoveredFile {
   /** repo-relative, posix separators */
@@ -85,6 +86,15 @@ export async function discover(root: string, opts: DiscoverOptions = {}): Promis
       continue; // permission error etc. — degrade, don't crash the scan
     }
 
+    const statResults = await runPool(entries.filter((entry) => entry.isFile()), async (entry) => {
+      const st = await fs.stat(path.join(absDir, entry.name)).catch(() => null);
+      return st ? [entry.name, st] as const : undefined;
+    });
+    const fileStats = new Map<string, Stats>();
+    for (const result of statResults) {
+      if (result) fileStats.set(result[0], result[1]);
+    }
+
     for (const entry of entries) {
       if (results.length >= maxFiles) break;
       const entryRel = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
@@ -118,7 +128,7 @@ export async function discover(root: string, opts: DiscoverOptions = {}): Promis
       }
 
       if (!entry.isFile() && !entry.isSymbolicLink()) continue; // sockets, FIFOs, etc. — skip
-      const st = await fs.stat(realAbs).catch(() => null);
+      const st = entry.isSymbolicLink() ? await fs.stat(realAbs).catch(() => null) : fileStats.get(entry.name) ?? null;
       if (!st || !st.isFile()) continue;
       if (st.size > maxFileBytes || totalBytes + st.size > maxTotalBytes) continue;
 
