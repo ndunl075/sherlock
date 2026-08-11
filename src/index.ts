@@ -90,7 +90,7 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
   );
 
   const budget = opts.budget ?? DEFAULT_BUDGET;
-  const ctx: Ctx = { root: absRoot, gitAvailable, budget };
+  const ctx: Ctx = { root: absRoot, gitAvailable, budget, now: Math.floor(Date.now() / 1000) };
   const findings = runAll(files, ctx);
 
   const rollup = computeRollup(files, findings, budget);

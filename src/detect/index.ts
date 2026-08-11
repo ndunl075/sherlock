@@ -11,6 +11,7 @@ import { t0OverweightDetector } from "./t0-overweight.js";
 import { bloatOutlierDetector } from "./bloat-outlier.js";
 import { staleDocDetector } from "./stale-doc.js";
 import { dupDocDetector } from "./dup-doc.js";
+import { coldAndCostlyDetector } from "./cold-and-costly.js";
 
 export const detectors: Detector[] = [
   generatedDetector,
@@ -19,6 +20,7 @@ export const detectors: Detector[] = [
   bloatOutlierDetector,
   staleDocDetector,
   dupDocDetector,
+  coldAndCostlyDetector,
   // one line per new detector — see CONTRIBUTING.md
 ];
 

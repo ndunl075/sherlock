@@ -46,6 +46,8 @@ export interface Ctx {
   gitAvailable: boolean;
   /** budget config, if any (from CLI flag or .sherlockrc) */
   budget?: number;
+  /** epoch seconds treated as "now" — injectable so age-based detectors are deterministic in tests */
+  now?: number;
 }
 
 export interface Detector {
