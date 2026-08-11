@@ -6,9 +6,11 @@
 
 import type { Ctx, Detector, FileRecord, Finding } from "../types.js";
 import { generatedDetector } from "./generated.js";
+import { vendoredDetector } from "./vendored.js";
 
 export const detectors: Detector[] = [
   generatedDetector,
+  vendoredDetector,
   // one line per new detector — see CONTRIBUTING.md
 ];
 
