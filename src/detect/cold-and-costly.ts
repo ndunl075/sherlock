@@ -5,29 +5,18 @@
 // seen are skipped outright — "cold" is a claim about history, and there's
 // none to make it from.
 //
-// "Not an entrypoint" has no import graph to check against yet (that's
-// dead-export/orphan-module's job, deferred — §10 flags tree-sitter as a new
-// dependency worth a deliberate call before it lands). v1 approximates it
-// with a basename allowlist plus tier 0, which is what's available without
-// one — noted as provisional, same as dup-doc's threshold.
+// "Not an entrypoint" now has an import graph to check against (graph/,
+// added alongside dead-export/orphan-module) but this detector predates it
+// and doesn't need the graph's precision — the same basename-allowlist
+// heuristic those two use for their own entrypoint seed set is enough here
+// too, so it's shared via util/entrypoints.ts rather than forked.
 
 import type { Ctx, Detector, FileRecord, Finding } from "../types.js";
+import { isLikelyEntrypointFile } from "../util/entrypoints.js";
 
 const COLD_DAYS = 180;
 const COLD_SECONDS = COLD_DAYS * 24 * 60 * 60;
 const LARGE_TOKEN_THRESHOLD = 1000;
-
-const ENTRYPOINT_BASENAMES = new Set([
-  "index.ts", "index.js", "index.mjs", "index.cjs",
-  "main.ts", "main.js", "main.py", "main.go", "main.rs",
-  "__init__.py", "cli.ts", "cli.js", "app.ts", "app.js", "server.ts", "server.js",
-]);
-
-function isLikelyEntrypoint(file: FileRecord): boolean {
-  if (file.tier === 0) return true; // resident files are a different detector's concern, never flagged here
-  const base = file.path.split("/").pop() ?? file.path;
-  return ENTRYPOINT_BASENAMES.has(base);
-}
 
 export const coldAndCostlyDetector: Detector = {
   id: "cold-and-costly",
@@ -42,7 +31,7 @@ export const coldAndCostlyDetector: Detector = {
 
       const ageSeconds = now - file.lastCommit;
       if (ageSeconds < COLD_SECONDS) continue;
-      if (isLikelyEntrypoint(file)) continue;
+      if (isLikelyEntrypointFile(file)) continue;
 
       const ageDays = Math.floor(ageSeconds / 86_400);
       const ageBonus = Math.min(0.3, ((ageDays - COLD_DAYS) / 365) * 0.3);
