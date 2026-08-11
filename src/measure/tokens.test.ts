@@ -58,3 +58,8 @@ test("measureTokens: binary kind is never tokenized", async () => {
   const result = await measureTokens({ path: "logo.png", absPath: "/nonexistent", bytes: 12345, mtimeMs: 0 }, 1, "binary");
   assert.deepEqual(result, { tokens: 0, estimated: true, headSample: "" });
 });
+
+test("measureTokens: minified assets are never tokenized even though they are generated text", async () => {
+  const result = await measureTokens({ path: "assets/app.min.js", absPath: "/nonexistent", bytes: 12345, mtimeMs: 0 }, 1, "generated");
+  assert.deepEqual(result, { tokens: 0, estimated: true, headSample: "" });
+});

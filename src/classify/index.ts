@@ -19,7 +19,7 @@ const LOCKFILE_NAMES = new Set([
 ]);
 
 const GENERATED_DIR_SEGMENTS = new Set(["dist", "build", "generated", "out", ".next", "target"]);
-const GENERATED_SUFFIXES = [".min.js", ".min.css", ".pb.go", ".pb.js", ".pb.cc", ".pb.h"];
+const GENERATED_SUFFIXES = [".pb.go", ".pb.js", ".pb.cc", ".pb.h"];
 
 const VENDORED_DIR_SEGMENTS = new Set(["vendor", "third_party", "node_modules"]);
 
@@ -56,6 +56,11 @@ function basename(relPath: string): string {
   return relPath.split("/").pop() ?? relPath;
 }
 
+/** Minified assets are reported by raw byte size, never tokenized. */
+export function isMinifiedPath(relPath: string): boolean {
+  return /\.min\.[^/]+$/i.test(relPath);
+}
+
 /** Cheap heuristic: a chunk with a NUL byte, or a high ratio of non-text bytes, reads as binary. */
 export function looksBinary(sample: Buffer): boolean {
   if (sample.length === 0) return false;
@@ -72,7 +77,7 @@ export function needsContentSniff(relPath: string): boolean {
   const ext = extname(relPath);
   if (BINARY_EXTENSIONS.has(ext) || DOC_EXTENSIONS.has(ext) || SOURCE_EXTENSIONS.has(ext)) return false;
   if (LOCKFILE_NAMES.has(basename(relPath))) return false;
-  if (GENERATED_SUFFIXES.some((suf) => relPath.endsWith(suf))) return false;
+  if (isMinifiedPath(relPath) || GENERATED_SUFFIXES.some((suf) => relPath.endsWith(suf))) return false;
   const dirs = segments(relPath);
   if (dirs.some((d) => GENERATED_DIR_SEGMENTS.has(d) || VENDORED_DIR_SEGMENTS.has(d) || FIXTURE_DIR_SEGMENTS.has(d))) {
     return false;
@@ -89,7 +94,7 @@ export function classify(relPath: string, contentSample?: Buffer): FileKind {
   if (contentSample && looksBinary(contentSample)) return "binary";
 
   if (LOCKFILE_NAMES.has(name)) return "generated";
-  if (GENERATED_SUFFIXES.some((suf) => relPath.endsWith(suf))) return "generated";
+  if (isMinifiedPath(relPath) || GENERATED_SUFFIXES.some((suf) => relPath.endsWith(suf))) return "generated";
   if (dirs.some((d) => GENERATED_DIR_SEGMENTS.has(d))) return "generated";
 
   if (dirs.some((d) => VENDORED_DIR_SEGMENTS.has(d))) return "vendored";

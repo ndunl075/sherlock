@@ -13,6 +13,7 @@
 import { promises as fs } from "node:fs";
 import type { FileKind, Tier } from "../types.js";
 import type { DiscoveredFile } from "../discover/index.js";
+import { isMinifiedPath } from "../classify/index.js";
 
 export interface Tokenizer {
   countTokens(text: string): number;
@@ -63,7 +64,7 @@ export async function measureTokens(
   kind: FileKind,
   tokenizer: Tokenizer = defaultTokenizer,
 ): Promise<MeasureResult> {
-  if (kind === "binary") {
+  if (kind === "binary" || isMinifiedPath(file.path)) {
     return { tokens: 0, estimated: true, headSample: "" };
   }
 

@@ -12,6 +12,11 @@ test("classify: dist/build paths are generated", () => {
   assert.equal(classify("packages/api/build/bundle.js"), "generated");
 });
 
+test("classify: every .min.* asset is generated without a content sniff", () => {
+  assert.equal(classify("assets/app.min.mjs"), "generated");
+  assert.equal(needsContentSniff("assets/app.min.mjs"), false);
+});
+
 test("classify: vendor/node_modules paths are vendored", () => {
   assert.equal(classify("vendor/sdk-bundle.js"), "vendored");
   assert.equal(classify("node_modules/left-pad/index.js"), "vendored");
