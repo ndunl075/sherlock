@@ -1,6 +1,7 @@
 // package.json entrypoint extraction — seeds orphan-module reachability and
 // cold-and-costly's "never flag an entrypoint" guard. Reads string fields only
-// (main / bin / exports); never loads or executes anything from the scanned tree.
+// (main / bin / exports / local paths mentioned in scripts); never loads or
+// executes anything from the scanned tree.
 
 /** Normalize a package.json path field to repo-relative posix (no leading `./`). */
 export function normalizePackagePath(value: string): string | undefined {
@@ -35,6 +36,46 @@ function collectFromExports(value: unknown, out: Set<string>): void {
   }
 }
 
+/** Local file paths referenced in npm script strings (`node ./x.js`, `--import ./y.mjs`). */
+const SCRIPT_PATH_RE =
+  /(?:^|[\s=])((?:\.\.?\/)?[\w@./+-]+\.(?:mjs|cjs|js|ts|tsx|jsx))\b/g;
+
+function collectFromScripts(scripts: unknown, out: Set<string>): void {
+  if (!scripts || typeof scripts !== "object") return;
+  for (const value of Object.values(scripts as Record<string, unknown>)) {
+    if (typeof value !== "string") continue;
+    SCRIPT_PATH_RE.lastIndex = 0;
+    for (const match of value.matchAll(SCRIPT_PATH_RE)) {
+      const n = normalizePackagePath(match[1] ?? "");
+      if (n) out.add(n);
+    }
+  }
+}
+
+/**
+ * When package.json points at `dist/foo.js` but discover baseline-ignores
+ * `dist/`, also try the common `src/` twin so bin/main still seed the graph.
+ */
+function expandDistToSrcCandidates(spec: string): string[] {
+  const base = spec.replace(/^\.\//, "");
+  const out = [base];
+  if (!base.startsWith("dist/")) return out;
+  const rest = base.slice("dist/".length);
+  out.push(`src/${rest}`);
+  for (const [from, to] of [
+    [".js", ".ts"],
+    [".mjs", ".ts"],
+    [".cjs", ".ts"],
+    [".js", ".mjs"],
+    [".mjs", ".mjs"],
+  ] as const) {
+    if (rest.endsWith(from)) {
+      out.push(`src/${rest.slice(0, -from.length)}${to}`);
+    }
+  }
+  return out;
+}
+
 /**
  * Collect runtime entry paths declared in a package.json object.
  * Returns normalized repo-relative paths; callers resolve against the file set.
@@ -62,8 +103,13 @@ export function collectPackageEntrypoints(pkg: unknown): string[] {
   }
 
   if (record.exports !== undefined) collectFromExports(record.exports, out);
+  collectFromScripts(record.scripts, out);
 
-  return [...out];
+  const expanded = new Set<string>();
+  for (const p of out) {
+    for (const c of expandDistToSrcCandidates(p)) expanded.add(c);
+  }
+  return [...expanded];
 }
 
 const RESOLVE_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
@@ -74,20 +120,21 @@ export function resolveAgainstKnownPaths(
   spec: string,
   knownPaths: ReadonlySet<string>,
 ): string | undefined {
-  const base = spec.replace(/^\.\//, "");
-  if (knownPaths.has(base)) return base;
+  for (const candidate of expandDistToSrcCandidates(spec)) {
+    if (knownPaths.has(candidate)) return candidate;
 
-  for (const [jsExt, tsExt] of Object.entries(JS_TO_TS)) {
-    if (base.endsWith(jsExt)) {
-      const swapped = base.slice(0, -jsExt.length) + tsExt;
-      if (knownPaths.has(swapped)) return swapped;
+    for (const [jsExt, tsExt] of Object.entries(JS_TO_TS)) {
+      if (candidate.endsWith(jsExt)) {
+        const swapped = candidate.slice(0, -jsExt.length) + tsExt;
+        if (knownPaths.has(swapped)) return swapped;
+      }
     }
-  }
 
-  for (const ext of RESOLVE_EXTS) {
-    if (knownPaths.has(base + ext)) return base + ext;
-    const indexed = `${base}/index${ext}`;
-    if (knownPaths.has(indexed)) return indexed;
+    for (const ext of RESOLVE_EXTS) {
+      if (knownPaths.has(candidate + ext)) return candidate + ext;
+      const indexed = `${candidate}/index${ext}`;
+      if (knownPaths.has(indexed)) return indexed;
+    }
   }
   return undefined;
 }

@@ -3,8 +3,8 @@
 // Signal: exported symbol with zero graph inbound edges. Confidence source:
 // import graph completeness — v1's graph (graph/) resolves relative
 // specifiers for ES module import/export, CommonJS require/module.exports,
-// and dynamic import(). Path aliases still look dead; confidence stays
-// capped under 1.0 for that caveat.
+// dynamic import(), and tsconfig/jsconfig `paths`. Bundler-only aliases and
+// bare package imports still look dead; confidence stays capped under 1.0.
 
 import type { Detector, FileRecord, Finding } from "../types.js";
 

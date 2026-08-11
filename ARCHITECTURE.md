@@ -53,7 +53,7 @@ src/
     tokens.ts       tokenizer + sampling estimator
     tier.ts         T0/T1/T2 assignment (resolves @imports transitively)
   detect/           one file per signal; all implement Detector
-  graph/            ES + CJS + dynamic import() graph via tree-sitter (JS/TS family)
+  graph/            ES + CJS + dynamic import() + tsconfig paths via tree-sitter (JS/TS)
   history/          git log adapter: last-touched + 90d churn
   cache/            .sherlock/cache.json (tokens + per-file module parse)
   config/           .sherlockrc (budget, cadence)
@@ -202,7 +202,7 @@ they're cheap once I/O is done.
 | Choice | Why | Cost accepted |
 |---|---|---|
 | TypeScript / Node | `npx @ndunl075/sherlock` — installable CLI for the JS-heavy audience | Slower cold start than Go; bare `sherlock` on npm is unrelated |
-| tree-sitter for the graph | one grammar interface across languages; ES + CJS + dynamic import() | per-language grammar deps; path aliases still unresolved |
+| tree-sitter for the graph | one grammar interface; ES + CJS + dynamic import() + tsconfig paths | per-language grammar deps; bundler-only aliases still unresolved |
 | Sampled tokenization | 10x speed for ~4% error | not exact outside T0 |
 | No auto-fix | trust; a wrong delete ends adoption | user must apply the patch |
 | Cache in `.sherlock/` | gitignored, per-clone, no global state | cold on fresh clone |
@@ -279,6 +279,6 @@ high and stated in CONTRIBUTING.
 
 Editor extensions · server/daemon mode · cross-repo aggregation · non-Claude/Cursor
 config formats · semantic dead-code (type-aware, needs a full type checker) ·
-MCP tool-schema residency · path-alias resolution (tsconfig `paths` / bundler
-aliases) · section-level findings inside a single markdown file · telemetry of
-any kind.
+MCP tool-schema residency · bundler-only aliases (webpack/`vite.resolve.alias`
+without a tsconfig paths entry) · section-level findings inside a single
+markdown file · telemetry of any kind.

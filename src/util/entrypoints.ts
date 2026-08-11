@@ -8,10 +8,11 @@
 
 import type { FileRecord, Tier } from "../types.js";
 
-export const ENTRYPOINT_BASENAMES = new Set([
+const ENTRYPOINT_BASENAMES = new Set([
   "index.ts", "index.js", "index.mjs", "index.cjs",
   "main.ts", "main.js", "main.py", "main.go", "main.rs",
-  "__init__.py", "cli.ts", "cli.js", "app.ts", "app.js", "server.ts", "server.js",
+  "__init__.py", "cli.ts", "cli.js", "cli.mjs", "app.ts", "app.js", "server.ts", "server.js",
+  "bin.ts", "bin.js", "bin.mjs", "bin.cjs",
 ]);
 
 // Test files are invoked directly by the test runner, never imported by
@@ -20,11 +21,13 @@ export const ENTRYPOINT_BASENAMES = new Set([
 // repo that follows this convention — caught by running this tool on its
 // own source, which is exactly the kind of thing self-hosting catches.
 const TEST_FILE_RE = /\.(test|spec)\.[jt]sx?$/;
+// Microbenchmarks are the same shape: run by npm scripts / node directly.
+const BENCH_FILE_RE = /\.bench\.[cm]?[jt]sx?$/;
 
 export function isLikelyEntrypoint(relPath: string, tier: Tier): boolean {
   if (tier === 0) return true; // resident files are a different concern, never treated as ordinary source
   const base = relPath.split("/").pop() ?? relPath;
-  return ENTRYPOINT_BASENAMES.has(base) || TEST_FILE_RE.test(base);
+  return ENTRYPOINT_BASENAMES.has(base) || TEST_FILE_RE.test(base) || BENCH_FILE_RE.test(base);
 }
 
 export function isLikelyEntrypointFile(file: Pick<FileRecord, "path" | "tier">): boolean {

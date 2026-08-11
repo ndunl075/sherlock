@@ -31,6 +31,7 @@ import { loadConfig } from "./config/index.js";
 import { loadCache, saveCache, isCacheValid, type CacheEntry } from "./cache/index.js";
 import { runPool } from "./util/pool.js";
 import { collectPackageEntrypoints, resolveAgainstKnownPaths } from "./util/package-entrypoints.js";
+import { loadPathAliases } from "./graph/aliases.js";
 import { type Ctx, type FileKind, type FileRecord, type Finding, type Tier } from "./types.js";
 
 // Public semver surface — ARCHITECTURE.md §11. Keep these root exports
@@ -169,7 +170,8 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
   const configP = loadConfig(absRoot);
   const cacheP = loadCache(absRoot);
   const packageEntrypointsP = loadPackageEntrypointSpecs(absRoot);
-  const [discovered, config, cache, packageEntrypointSpecs] = await Promise.all([
+  const pathAliasesP = loadPathAliases(absRoot);
+  const [discovered, config, cache, packageEntrypointSpecs, pathAliases] = await Promise.all([
     discoveredP.then((v) => {
       mark("discover", t);
       return v;
@@ -180,8 +182,9 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
       return v;
     }),
     packageEntrypointsP,
+    pathAliasesP,
   ]);
-  mark("discover+config+cache+package.json", t);
+  mark("discover+config+cache+package.json+aliases", t);
 
   t = performance.now();
   const kinds = new Map<string, ReturnType<typeof classify>>();
@@ -281,6 +284,7 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
       getCached: getCachedModuleInfo,
       prefetched,
       packageEntrypoints: packageEntrypointSpecs,
+      ...(pathAliases ? { pathAliases } : {}),
     }),
     runPool(sampledToMeasure, async (f) => {
       const kind = kindOf(f.path);

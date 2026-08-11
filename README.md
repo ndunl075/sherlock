@@ -5,10 +5,11 @@ quietly taxing every AI coding session — dead code, generated blobs, redundant
 docs — so you can trim what Claude Code, Cursor, or Codex has to read before
 every request.
 
-> **Status: v1 feature-complete (pre-1.0).**
-> Scanner, nine detectors, JSON/ignore-patch output, cache, and §9 bench are in.
-> Package is `@ndunl075/sherlock` — the bare name `sherlock` on npm is a different,
-> unrelated package. Not yet published; install from git until the first release.
+> **Status: v1.0.0 (ready to publish).**
+> Scanner, nine detectors, JSON/ignore-patch output, cache, §9 bench, CJS +
+> tsconfig paths graph, and contract tests are in. Package is `@ndunl075/sherlock`
+> — the bare name `sherlock` on npm is a different, unrelated package. Not
+> published yet; install from git until the npm release.
 
 ---
 

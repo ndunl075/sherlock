@@ -19,10 +19,25 @@ test("collectPackageEntrypoints: main + bin object + nested exports", () => {
       "./cli": "./dist/cli.js",
     },
   });
-  assert.deepEqual(
-    new Set(paths),
-    new Set(["lib/index.js", "dist/bin.mjs", "scripts/other.js", "lib/index.cjs", "dist/cli.js"]),
-  );
+  assert.ok(paths.includes("lib/index.js"));
+  assert.ok(paths.includes("dist/bin.mjs"));
+  assert.ok(paths.includes("src/bin.mjs"), "dist/bin.mjs expands to src twin");
+  assert.ok(paths.includes("scripts/other.js"));
+  assert.ok(paths.includes("lib/index.cjs"));
+  assert.ok(paths.includes("dist/cli.js"));
+});
+
+test("collectPackageEntrypoints: picks local paths out of scripts", () => {
+  const paths = collectPackageEntrypoints({
+    scripts: {
+      bench: "node --import ./bench/set-uv.mjs bench/scan.bench.mjs",
+      dev: "node dist/cli.js",
+    },
+  });
+  assert.ok(paths.includes("bench/set-uv.mjs"));
+  assert.ok(paths.includes("bench/scan.bench.mjs"));
+  assert.ok(paths.includes("dist/cli.js"));
+  assert.ok(paths.includes("src/cli.js") || paths.includes("src/cli.ts"));
 });
 
 test("collectPackageEntrypoints: ignores non-objects and empty", () => {
@@ -30,3 +45,4 @@ test("collectPackageEntrypoints: ignores non-objects and empty", () => {
   assert.deepEqual(collectPackageEntrypoints("nope"), []);
   assert.deepEqual(collectPackageEntrypoints({}), []);
 });
+

@@ -16,7 +16,7 @@ export interface IgnoreRule {
 }
 
 /** Directories ignored unconditionally, regardless of any ignore file present. */
-export const BASELINE_IGNORE_DIRS = [
+const BASELINE_IGNORE_DIRS = [
   ".git",
   "node_modules",
   ".sherlock",

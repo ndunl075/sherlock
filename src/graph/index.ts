@@ -20,6 +20,7 @@
 
 import { promises as fs } from "node:fs";
 import { parseModule, isGraphEligibleExt, type ModuleInfo } from "./parse.js";
+import { applyPathAlias, type PathAliasConfig } from "./aliases.js";
 import { resolveRelative } from "../util/posix-path.js";
 import { isLikelyEntrypoint } from "../util/entrypoints.js";
 import { resolveAgainstKnownPaths } from "../util/package-entrypoints.js";
@@ -58,22 +59,8 @@ export interface BuildGraphOptions {
    * may lack an extension). Resolved against known graph-eligible paths.
    */
   packageEntrypoints?: readonly string[];
-}
-
-const RESOLVE_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
-
-// TypeScript's NodeNext module resolution writes import specifiers with a
-// ".js" extension that resolve against a ".ts" source file on disk (this
-// repo's own source does this everywhere: "./types.js" -> types.ts). Without
-// this, every such import would fail to resolve and every imported file
-// would read as orphaned — which is exactly what a self-scan first caught.
-const JS_TO_TS_EXT: Record<string, string> = { ".js": ".ts", ".jsx": ".tsx", ".mjs": ".ts", ".cjs": ".ts" };
-
-function swapToTsExtension(base: string): string | undefined {
-  for (const [jsExt, tsExt] of Object.entries(JS_TO_TS_EXT)) {
-    if (base.endsWith(jsExt)) return base.slice(0, -jsExt.length) + tsExt;
-  }
-  return undefined;
+  /** tsconfig/jsconfig paths — bare specifiers mapped before resolution */
+  pathAliases?: PathAliasConfig;
 }
 
 function extnameOf(relPath: string): string {
@@ -82,21 +69,20 @@ function extnameOf(relPath: string): string {
   return i <= 0 ? "" : base.slice(i).toLowerCase();
 }
 
-function resolveSpecifier(spec: string, fromPath: string, knownPaths: ReadonlySet<string>): string | undefined {
-  if (!spec.startsWith("./") && !spec.startsWith("../")) return undefined; // bare/aliased specifier — not resolved in v1
-  const base = resolveRelative(spec, fromPath);
-  if (!base) return undefined;
-  if (knownPaths.has(base)) return base;
-
-  const tsSwap = swapToTsExtension(base);
-  if (tsSwap && knownPaths.has(tsSwap)) return tsSwap;
-
-  for (const ext of RESOLVE_EXTS) {
-    if (knownPaths.has(base + ext)) return base + ext;
-    const indexed = `${base}/index${ext}`;
-    if (knownPaths.has(indexed)) return indexed;
+function resolveSpecifier(
+  spec: string,
+  fromPath: string,
+  knownPaths: ReadonlySet<string>,
+  pathAliases?: PathAliasConfig,
+): string | undefined {
+  let candidate: string | undefined;
+  if (spec.startsWith("./") || spec.startsWith("../")) {
+    candidate = resolveRelative(spec, fromPath) ?? undefined;
+  } else if (pathAliases) {
+    candidate = applyPathAlias(spec, pathAliases);
   }
-  return undefined;
+  if (!candidate) return undefined;
+  return resolveAgainstKnownPaths(candidate, knownPaths);
 }
 
 export async function buildGraph(files: GraphInput[], opts: BuildGraphOptions = {}): Promise<GraphResult> {
@@ -151,14 +137,14 @@ export async function buildGraph(files: GraphInput[], opts: BuildGraphOptions = 
     exportsByFile.set(file.path, info.exportedNames);
 
     for (const imp of info.imports) {
-      const target = resolveSpecifier(imp.source, file.path, knownPaths);
+      const target = resolveSpecifier(imp.source, file.path, knownPaths, opts.pathAliases);
       if (!target) continue;
       addEdge(file.path, target);
       if (imp.namespace) fullyUsed.add(target);
       for (const name of imp.names) addUsed(target, name);
     }
     for (const re of info.reexports) {
-      const target = resolveSpecifier(re.source, file.path, knownPaths);
+      const target = resolveSpecifier(re.source, file.path, knownPaths, opts.pathAliases);
       if (!target) continue;
       addEdge(file.path, target);
       if (re.star) fullyUsed.add(target);

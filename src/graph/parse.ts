@@ -3,8 +3,8 @@
 //
 // v1 scope: JS/TS family only (.ts/.tsx/.js/.jsx/.mjs/.cjs). Parses ES module
 // import/export, CommonJS `require()` / `module.exports` / `exports.*`, and
-// dynamic `import()`. No path-alias resolution (tsconfig `paths`, webpack
-// aliases) — only relative specifiers (`./x`, `../x`) get resolved downstream.
+// dynamic `import()`. Path aliases (tsconfig `paths`) are resolved in graph/
+// via aliases.ts — this module only extracts raw specifiers.
 
 import Parser from "tree-sitter";
 import TypeScriptLanguages from "tree-sitter-typescript";
@@ -83,6 +83,11 @@ const DECLARATION_NAME_TYPES = new Set([
 ]);
 
 function namesFromDeclaration(decl: Parser.SyntaxNode): string[] {
+  // Type-only exports (interface/type) are erased at runtime and inflate
+  // dead-export noise when nothing imports them by name — skip for the graph.
+  if (decl.type === "interface_declaration" || decl.type === "type_alias_declaration") {
+    return [];
+  }
   if (DECLARATION_NAME_TYPES.has(decl.type)) {
     const name = decl.childForFieldName("name");
     return name ? [name.text] : [];
@@ -104,7 +109,7 @@ function namesFromDeclaration(decl: Parser.SyntaxNode): string[] {
 // tree-sitter dominates cold time there, so a conservative regex path pays for
 // itself. Anything ambiguous falls through to the full parser.
 const FAST_EXPORT_DECL =
-  /^export\s+(?:async\s+)?(?:function\s*\*?|class|const|let|var|enum|interface|type)\s+([A-Za-z_$][\w$]*)/gm;
+  /^export\s+(?:async\s+)?(?:function\s*\*?|class|const|let|var|enum)\s+([A-Za-z_$][\w$]*)/gm;
 
 /**
  * Return a ModuleInfo without tree-sitter when the source is unambiguously a

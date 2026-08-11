@@ -40,4 +40,4 @@ vulnerability even if nothing is exploitable yet:
 
 ## Supported versions
 
-Pre-1.0 (`0.x`). Once `1.0` ships, the latest minor gets security fixes.
+`1.x` — the latest minor gets security fixes.

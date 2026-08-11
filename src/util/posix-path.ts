@@ -3,7 +3,7 @@
 // @import resolution in measure/tier.ts, link resolution in detect/stale-doc.ts —
 // needs the same normalize/dirname logic. One place for it.
 
-export function normalizePosix(p: string): string {
+function normalizePosix(p: string): string {
   const out: string[] = [];
   for (const part of p.split("/")) {
     if (part === "" || part === ".") continue;
@@ -13,7 +13,7 @@ export function normalizePosix(p: string): string {
   return out.join("/");
 }
 
-export function dirOf(relPath: string): string {
+function dirOf(relPath: string): string {
   const i = relPath.lastIndexOf("/");
   return i === -1 ? "" : relPath.slice(0, i);
 }

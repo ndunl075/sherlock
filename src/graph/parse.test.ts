@@ -114,14 +114,15 @@ export * from "./e";
   );
 });
 
-test("parseModule: TS-only declarations (interface/type/enum) are exported names too", () => {
+test("parseModule: TS interface/type exports are omitted from exportedNames (type-only)", () => {
   const src = `
 export interface Bar { x: number }
 export type Baz = string;
 export enum Color { Red, Green }
+export function keep() {}
 `;
   const info = parseModule(src, ".ts")!;
-  assert.deepEqual(info.exportedNames, new Set(["Bar", "Baz", "Color"]));
+  assert.deepEqual(info.exportedNames, new Set(["Color", "keep"]));
 });
 
 test("parseModule: JSX in .tsx parses without throwing", () => {

@@ -38,7 +38,7 @@ function heuristicCountTokens(text: string): number {
 
 export const defaultTokenizer: Tokenizer = { countTokens: heuristicCountTokens };
 
-export const SAMPLE_SIZE = 8192;
+const SAMPLE_SIZE = 8192;
 const HEAD_SAMPLE_CHARS = 4096;
 
 export interface MeasureResult {
