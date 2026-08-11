@@ -1,9 +1,9 @@
 // `dup-doc` detector — ARCHITECTURE.md §6.
 //
-// Signal: near-duplicate prose across *.md. Confidence source: simhash
-// bucket + Jaccard shingles — here, a pairwise Hamming-distance comparison
-// over the 32-bit fingerprints measure/simhash.ts already computed. No file
-// content is touched; per §12, the detector only ever sees the hash.
+// Signal: near-duplicate prose across *.md. Confidence source: pairwise
+// Hamming distance over the 32-bit fingerprints measure/simhash.ts already
+// computed (word-shingle simhash). No file content is touched; per §12, the
+// detector only ever sees the hash.
 //
 // v1 is a straight O(n²) pairwise scan, not bucketed — fine for the doc
 // counts a repo's *.md tree typically has. Revisit with real bucketing if a

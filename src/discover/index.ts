@@ -57,7 +57,7 @@ async function loadDirRules(absDir: string, relDir: string, presentNames: Readon
     // every directory is fine on a handful of dirs and catastrophic on a 50k-
     // file tree (hundreds of dirs × 3 failed opens), especially on Windows
     // where ENOENT is expensive. Caught by the §9 warm-scan timing: discover
-    // alone was >1s of the 800ms budget before this guard.
+    // alone was already most of the warm budget before this guard.
     if (!presentNames.has(name)) continue;
     try {
       const content = await fs.readFile(path.join(absDir, name), "utf8");

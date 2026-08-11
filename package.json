@@ -1,5 +1,5 @@
 {
-  "name": "sherlock",
+  "name": "@ndunl075/sherlock",
   "version": "0.1.0",
   "description": "A context budget linter — scans a repo and reports which files are quietly taxing every AI coding session.",
   "type": "module",
@@ -7,6 +7,9 @@
     "sherlock": "dist/bin.mjs"
   },
   "main": "dist/index.js",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },

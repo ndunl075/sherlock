@@ -1,10 +1,10 @@
 // Simhash fingerprint — ARCHITECTURE.md §6/§12, `dup-doc` detector's signal
-// source ("simhash bucket + Jaccard shingles").
+// source (word shingles → 32-bit fingerprint; detector uses Hamming distance).
 //
 // Runs during measure/ against the head sample already read for
 // tokenization; the detector only ever sees the resulting 32-bit fingerprint,
-// never the text. That's the point (§12): "the dedup detector stores
-// simhashes, not text. Hashes are one-way and are discarded after the run."
+// never the text. Fingerprints may be stored in `.sherlock/cache.json` across
+// runs — still never file content (§12).
 
 const SHINGLE_SIZE = 5; // words per shingle
 const MIN_SHINGLES = 8; // below this, a doc is too short for the fingerprint to mean anything

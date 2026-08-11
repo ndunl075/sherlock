@@ -17,7 +17,7 @@ Sherlock does not, because the remedy differs for each.
 |---|---|---|---|
 | **T0 Resident** | Auto-loaded on every request: `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, their `@imports` | Every turn × every session | Cut or split the file |
 | **T1 Reachable** | What search/glob/grep surfaces and the agent then reads: source, docs, fixtures | Per unlucky retrieval | Ignore-file patterns |
-| **T2 Ambient** | Tree listings, `ls` output, path noise from 40k-file `node_modules` | Per exploration step | Ignore + directory collapse |
+| **T2 Ambient** | Tree listings, `ls` output, path noise from huge dependency trees | Per exploration step | Ignore patterns (baseline already skips `node_modules`/`dist`/…) |
 
 **Waste = tokens × P(the agent never needed it) × cadence.** A 900-token stale
 paragraph in `CLAUDE.md` outranks a 50k-token lockfile, because the lockfile is
@@ -47,7 +47,7 @@ src/
   bin.mjs           UV threadpool bump, then cli
   cli.ts            arg parse, exit codes, tty detection
   index.ts          scan() pipeline
-  discover/         walk + ignore-stack resolution (gitignore, claudeignore, cursorignore)
+  discover/         walk + baseline ignore + gitignore/claudeignore/cursorignore stack
   classify/         file kind: source | generated | vendored | doc | fixture | binary
   measure/
     tokens.ts       tokenizer + sampling estimator
@@ -108,12 +108,15 @@ Exact tokenization of a 2GB monorepo is the obvious wrong default.
 - **Everything else:** byte→token ratio sampled per file kind (first 8KB + a
   middle 8KB slice), then extrapolated. Empirically within ~4% for text.
 - **Binary/minified:** flagged, not tokenized. Reported as raw bytes.
--   Results cached in `.sherlock/cache.json`, keyed by `path + mtime + size`.
-  Warm runs skip re-measure/re-parse and are the common case in a watch loop.
+- Results cached in `.sherlock/cache.json`, keyed by `path + mtime + size`
+  (also stores kind, estimated flag, and other per-file metadata — never raw
+  content). Warm runs skip re-measure/re-parse and are the common case in a
+  watch loop.
 
-Tokenizer is behind a `Tokenizer` port. Default implementation targets Claude's
-counting; the ratio only shifts a few percent across major model families, and
-ranking — not absolute count — is what drives every decision here.
+Tokenizer is behind a `Tokenizer` port. The default is a dependency-free
+heuristic approximation of BPE-style counting — close enough for *ranking*,
+not a claim of Claude's exact tokenizer. Swap in a real model tokenizer later
+behind the same interface without touching callers.
 
 ---
 
@@ -125,7 +128,7 @@ ranking — not absolute count — is what drives every decision here.
 | `vendored` | committed deps, bundled SDKs | path + no-git-churn |
 | `dead-export` | exported symbol with zero graph inbound edges | import graph completeness |
 | `orphan-module` | file unreachable from any entrypoint | entrypoint inference quality |
-| `dup-doc` | near-duplicate prose across `*.md` | simhash bucket + Jaccard shingles |
+| `dup-doc` | near-duplicate prose across `*.md` | simhash Hamming distance (pairwise) |
 | `stale-doc` | doc references paths that no longer exist | resolved-path hit rate |
 | `bloat-outlier` | tokens in top 1% for its kind | distribution |
 | `cold-and-costly` | large, untouched >180d, not an entrypoint | git history depth |
@@ -198,7 +201,7 @@ they're cheap once I/O is done.
 
 | Choice | Why | Cost accepted |
 |---|---|---|
-| TypeScript / Node | `npx sherlock` — zero-install for the JS-heavy target audience | Slower cold start than Go |
+| TypeScript / Node | `npx @ndunl075/sherlock` — installable CLI for the JS-heavy audience | Slower cold start than Go; bare `sherlock` on npm is unrelated |
 | tree-sitter for the graph | one grammar interface across languages | per-language grammar deps |
 | Sampled tokenization | 10x speed for ~4% error | not exact outside T0 |
 | No auto-fix | trust; a wrong delete ends adoption | user must apply the patch |
@@ -237,8 +240,8 @@ in-process sandbox to offer here.
 Sherlock reads every file in a repo, including ones you'd never paste into a
 chat. The threat model follows from that.
 
-**Scanning a hostile repo must be safe.** `npx sherlock` on someone else's clone
-is a normal thing to do, so nothing in the scanned tree is trusted input:
+**Scanning a hostile repo must be safe.** `npx @ndunl075/sherlock` on someone else's
+clone is a normal thing to do, so nothing in the scanned tree is trusted input:
 
 - No code from the scanned repo is loaded, required, or executed. Ever.
 - No config from the scanned repo grants privilege — `.sherlockrc` sets
@@ -254,21 +257,23 @@ is a normal thing to do, so nothing in the scanned tree is trusted input:
 
 - `Finding.reason` is generated from templates + metadata. It never interpolates
   file content, and this is enforced by test, not convention.
-- The dedup detector stores simhashes, not text. Hashes are one-way and are
-  discarded after the run.
-- `.sherlock/cache.json` holds path, mtime, size, token count — no content, no
-  snippets. It's added to `.gitignore` on first run.
+- The dedup detector compares simhashes, not text. Fingerprints may be stored in
+  `.sherlock/cache.json` across runs (still not content).
+- `.sherlock/cache.json` holds path, mtime, size, token counts, kind, and other
+  per-file metadata (including optional simhash / module-parse summaries) — no
+  file content, no snippets. It's added to `.gitignore` on first run.
 - No network I/O in any code path. No telemetry, no update check, no
-  "anonymous usage stats." The package declares zero runtime hosts, which makes
-  this auditable rather than a promise.
+  "anonymous usage stats." There is no HTTP client among the runtime
+  dependencies, which makes this auditable by inspection rather than a promise.
 
 **The `--json` and `--emit-ignore` outputs list paths from a private repo.**
 That's the intended output, but it means CI logs inherit it. Documented in the
 README so nobody pipes a scan into a public build log by accident.
 
-**Dependencies:** minimal and pinned; `npm audit` and a lockfile-diff review gate
-CI. Every added dependency is a new party with read access to users' source
-trees, so the bar for adding one is high and stated in CONTRIBUTING.
+**Dependencies:** minimal; versions are lockfile-pinned (`package-lock.json`) with
+`npm audit` and a lockfile-diff review gate in CI. Every added dependency is a
+new party with read access to users' source trees, so the bar for adding one is
+high and stated in CONTRIBUTING.
 
 ## 13. Not in v1
 
