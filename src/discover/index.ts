@@ -26,10 +26,16 @@ export interface DiscoveredFile {
 export interface DiscoverOptions {
   maxDepth?: number;
   maxFiles?: number;
+  /** Files above this size are skipped before any downstream reader sees them. */
+  maxFileBytes?: number;
+  /** Total size of discovered files; later files are skipped once this is reached. */
+  maxTotalBytes?: number;
 }
 
 const DEFAULT_MAX_DEPTH = 64;
 const DEFAULT_MAX_FILES = 200_000;
+const DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
+const DEFAULT_MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
 const IGNORE_FILE_NAMES = [".gitignore", ".claudeignore", ".cursorignore"];
 
 function toPosix(p: string): string {
@@ -52,9 +58,12 @@ async function loadDirRules(absDir: string, relDir: string): Promise<IgnoreRule[
 export async function discover(root: string, opts: DiscoverOptions = {}): Promise<DiscoveredFile[]> {
   const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
   const maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
+  const maxFileBytes = opts.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
+  const maxTotalBytes = opts.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES;
   const absRoot = await fs.realpath(path.resolve(root));
 
   const results: DiscoveredFile[] = [];
+  let totalBytes = 0;
   const visitedReal = new Set<string>([absRoot]);
 
   type Frame = { absDir: string; relDir: string; depth: number; rules: IgnoreRule[] };
@@ -111,8 +120,10 @@ export async function discover(root: string, opts: DiscoverOptions = {}): Promis
       if (!entry.isFile() && !entry.isSymbolicLink()) continue; // sockets, FIFOs, etc. — skip
       const st = await fs.stat(realAbs).catch(() => null);
       if (!st || !st.isFile()) continue;
+      if (st.size > maxFileBytes || totalBytes + st.size > maxTotalBytes) continue;
 
       results.push({ path: toPosix(entryRel), absPath: realAbs, bytes: st.size, mtimeMs: st.mtimeMs });
+      totalBytes += st.size;
     }
   }
 

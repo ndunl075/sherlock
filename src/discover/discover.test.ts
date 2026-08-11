@@ -47,3 +47,28 @@ test("discover: never follows a symlink that escapes the repo root", async () =>
     await fs.rm(outside, { recursive: true, force: true });
   }
 });
+
+test("discover: skips files over the per-file byte cap before readers can open them", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sherlock-discover-"));
+  try {
+    await fs.writeFile(path.join(root, "small.txt"), "small");
+    await fs.writeFile(path.join(root, "large.txt"), "this is too large");
+    const files = await discover(root, { maxFileBytes: 8 });
+    assert.deepEqual(files.map((f) => f.path), ["small.txt"]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("discover: stops accepting files once the total-byte cap is reached", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sherlock-discover-"));
+  try {
+    await fs.writeFile(path.join(root, "a.txt"), "1234");
+    await fs.writeFile(path.join(root, "b.txt"), "5678");
+    const files = await discover(root, { maxTotalBytes: 6 });
+    assert.equal(files.length, 1);
+    assert.equal(files[0]?.bytes, 4);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
