@@ -134,7 +134,9 @@ export async function buildGraph(files: GraphInput[], opts: BuildGraphOptions = 
           return; // unreadable — degrade, this file just contributes no graph data
         }
       }
-      const parsed = parseModule(source, extnameOf(file.path));
+      // Narrow for tsc: the catch path returned, so source is defined here.
+      const text: string = source;
+      const parsed = parseModule(text, extnameOf(file.path));
       if (!parsed) return;
       info = parsed;
     }
