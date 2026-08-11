@@ -17,7 +17,8 @@
     "build": "tsc",
     "test": "tsc && node --test dist/**/*.test.js",
     "dev": "tsc && node dist/cli.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bench": "tsc && node bench/scan.bench.mjs"
   },
   "license": "MIT",
   "author": "Nicolas Dunlap",
