@@ -22,6 +22,14 @@
   },
   "license": "MIT",
   "author": "Nicolas Dunlap",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ndunl075/sherlock.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ndunl075/sherlock/security/advisories"
+  },
+  "homepage": "https://github.com/ndunl075/sherlock#readme",
   "devDependencies": {
     "typescript": "^5.6.0"
   },

@@ -6,8 +6,8 @@
 // since log is newest-first), one --since=90.days.ago pass for churn count.
 //
 // v1 note: the full-history pass is unbounded and will get slow on repos with
-// very long histories. Acceptable for the vertical slice; revisit against the
-// §9 performance budget once it's benchmarked.
+// very long histories. Acceptable while §9 still fits; revisit if cold scans
+// on deep-history monorepos start missing the budget.
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";

@@ -28,3 +28,14 @@ test("renderTable: groups the top twenty ranked files by suggested action", () =
   assert.match(output, /CLAUDE\.md/);
   assert.match(output, /src\/review\.ts/);
 });
+
+test("renderTable: empty findings falls back to resident listing copy, not a missing-detector claim", () => {
+  const output = renderTable(
+    { ...rollup, ranked: [] },
+    [{ path: "CLAUDE.md", bytes: 10, tokens: 100, estimated: false, kind: "doc", tier: 0 }],
+    [],
+  );
+  assert.match(output, /No findings/);
+  assert.doesNotMatch(output, /No detectors registered/);
+  assert.match(output, /CLAUDE\.md/);
+});

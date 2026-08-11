@@ -12,6 +12,25 @@ every request.
 
 ---
 
+## Install
+
+```bash
+npx sherlock                  # no install, scans cwd
+npm i -g sherlock             # optional global
+```
+
+Requires Node 20+.
+
+## Usage
+
+```bash
+sherlock                      # ranked report
+sherlock --json               # stable schema for CI
+sherlock --emit-ignore        # diff against .claudeignore / .cursorignore
+sherlock --budget 3000        # exit 1 when resident context is over budget
+sherlock path/to/repo         # scan a specific root
+```
+
 ## The idea
 
 Every agent session pays for context in three different ways, and most people
@@ -19,7 +38,7 @@ only ever notice the third:
 
 | | What it is | You pay | Fix |
 |---|---|---|---|
-| **Resident** | `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, their imports, MCP tool schemas | every single turn | cut or split it |
+| **Resident** | Auto-loaded on every request: `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, their `@imports` | every single turn | cut or split it |
 | **Reachable** | what search and grep surface, that the agent then reads | per unlucky retrieval | ignore patterns |
 | **Ambient** | tree listings, path noise from a 40k-file `node_modules` | per exploration step | ignore patterns |
 
@@ -31,27 +50,22 @@ is read approximately always.
 So Sherlock doesn't rank by file size. It ranks by
 `tokens × P(the agent never needed it) × how often it's read`.
 
-## Planned output
+## Example output
 
 ```
-Resident context   4,812 tok   ██████░░░░  (budget 3,000)  +60%
-Repo reachable   1.2M tok
+Resident context  4,812 tok   ██████░░░░  (budget 3,000 tok)  +60%
+Repo reachable    1.2M tok
 Top trim          312k tok recoverable across 47 files
 
-  RESIDENT                                    tokens   conf
-  CLAUDE.md §"Legacy API notes"                  912   0.91  refs 4 paths that no longer exist
-  CLAUDE.md @imports/style-guide.md            1,204   0.78  94% overlap with CONTRIBUTING.md
+  IGNORE
+  PATH                                              DETECTOR        CONF  REASON
+  fixtures/snapshots/auth.json                      generated       0.97  generated file — matches a known lockfile/build-output path pattern
+  vendor/sdk-bundle.js                              vendored        0.95  vendored path with no recent git churn
 
-  IGNORE                                      tokens   conf
-  fixtures/snapshots/**                      184,300   0.97  generated; untouched 340d
-  vendor/sdk-bundle.js                        61,220   0.95  vendored; no inbound edges
-```
-
-```bash
-sherlock                    # ranked report
-sherlock --json             # stable schema for CI
-sherlock --emit-ignore      # diff against .claudeignore / .cursorignore
-sherlock --budget 3000      # exit 1 when resident context is over budget
+  REVIEW
+  PATH                                              DETECTOR        CONF  REASON
+  src/legacy/unused.ts                              orphan-module   0.55  unreachable from any inferred entrypoint via relative import edges
+  docs/old-api.md                                   stale-doc       0.80  references 2 of 3 linked path(s) that no longer exist
 ```
 
 **Sherlock never deletes anything.** It ranks, explains, and hands you a patch to

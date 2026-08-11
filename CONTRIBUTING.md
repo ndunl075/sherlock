@@ -1,8 +1,7 @@
 # Contributing
 
-The v1 scanner, nine detectors, cache, and CLI are implemented. The remaining
-hard gate is [ARCHITECTURE.md §9](ARCHITECTURE.md#9-performance-budget) —
-`npm run bench` on a 50k-file fixture. Two ways to help, in order of usefulness.
+The v1 scanner, nine detectors, cache, CLI, and §9 bench gate are in place. Two
+ways to help, in order of usefulness.
 
 ## 1. Argue with the model
 
@@ -36,8 +35,8 @@ them:
 
 - **Never put file content in `Finding.reason`.** Build it from templates and
   metadata. A reason like `` `duplicate of ${otherPath}` `` is fine;
-  `` `contains "${line}"` `` is a content leak and will be rejected. There's a
-  test that greps for this.
+  `` `contains "${line}"` `` is a content leak and will be rejected. Detector
+  tests assert reasons are templated (see `generated.test.ts`).
 - **No I/O.** Detectors receive completed records. No `fs`, no `child_process`,
   no network — that's not a style preference, it's what keeps `npx sherlock`
   safe to run on an untrusted repo.
@@ -67,8 +66,8 @@ Dev dependencies are less fraught but still reviewed.
 - Tests with it, not after it.
 - If you change anything under §11 Public surface in ARCHITECTURE.md, say so in
   the PR — that's the semver contract.
-- Performance budgets in §9 are enforced. If your change blows one, that's a
-  conversation, not an automatic no.
+- Performance budgets in §9 are enforced by `npm run bench`. If your change
+  blows one, that's a conversation, not an automatic no.
 
 ## Conduct
 

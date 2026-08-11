@@ -47,7 +47,7 @@ export function renderTable(rollup: Rollup, files: FileRecord[], findings: Findi
   lines.push("");
 
   if (findings.length === 0) {
-    lines.push("No detectors registered yet — showing resident files by token cost.");
+    lines.push("No findings — showing resident files by token cost.");
     const resident = files
       .filter((f) => f.tier === 0)
       .sort((a, b) => b.tokens - a.tokens)
