@@ -12,6 +12,8 @@ import { bloatOutlierDetector } from "./bloat-outlier.js";
 import { staleDocDetector } from "./stale-doc.js";
 import { dupDocDetector } from "./dup-doc.js";
 import { coldAndCostlyDetector } from "./cold-and-costly.js";
+import { orphanModuleDetector } from "./orphan-module.js";
+import { deadExportDetector } from "./dead-export.js";
 
 export const detectors: Detector[] = [
   generatedDetector,
@@ -21,6 +23,8 @@ export const detectors: Detector[] = [
   staleDocDetector,
   dupDocDetector,
   coldAndCostlyDetector,
+  orphanModuleDetector,
+  deadExportDetector,
   // one line per new detector — see CONTRIBUTING.md
 ];
 
