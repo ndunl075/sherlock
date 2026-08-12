@@ -105,8 +105,10 @@ synthetic `FileRecord[]` and no fixture repo on disk.
 Exact tokenization of a 2GB monorepo is the obvious wrong default.
 
 - **Tier 0 files:** always tokenized exactly. They're few and they matter most.
-- **Everything else:** byte→token ratio sampled per file kind (first 8KB + a
-  middle 8KB slice), then extrapolated. Empirically within ~4% for text.
+- **Small files (≤16KB):** tokenized exactly; they dominate ordinary repos and
+  their text can be reused for the import graph.
+- **Larger non-T0 text:** byte→token ratio sampled per file kind (first 8KB +
+  a middle 8KB slice), then extrapolated. Empirically within ~4% for text.
 - **Binary/minified:** flagged, not tokenized. Reported as raw bytes.
 - Results cached in `.sherlock/cache.json`, keyed by `path + mtime + size`
   (also stores kind, estimated flag, and other per-file metadata — never raw
@@ -191,9 +193,10 @@ cache map for 50k module parses. Absolute numbers vary with OS/disk; these
 ceilings are set to catch regressions (multi-second hangs, unbounded memory),
 not to claim a particular laptop's SSD.
 
-Discovery and measurement are concurrent (worker pool + enlarged libuv
-threadpool); detectors are sequential over the completed record set, since
-they're cheap once I/O is done.
+Discovery and each measurement/graph phase use bounded worker pools with an
+enlarged libuv threadpool; exact small-file measurement and parsing share one
+read. Detectors are sequential over the completed record set, since they're
+cheap once I/O is done.
 
 ---
 
