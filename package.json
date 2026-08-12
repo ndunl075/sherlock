@@ -15,10 +15,13 @@
     "node": ">=20"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.test.*",
+    "!dist/**/*.map"
   ],
   "scripts": {
-    "build": "tsc && node -e \"require('fs').copyFileSync('src/bin.mjs','dist/bin.mjs')\"",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc && node -e \"require('fs').copyFileSync('src/bin.mjs','dist/bin.mjs')\"",
     "test": "npm run build && node --test dist/**/*.test.js",
     "dev": "npm run build && node --import ./bench/set-uv.mjs dist/cli.js",
     "typecheck": "tsc --noEmit",

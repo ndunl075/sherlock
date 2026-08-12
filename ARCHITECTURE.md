@@ -3,6 +3,10 @@
 A context budget linter. Scans a repo and reports which files are quietly taxing
 every AI coding session, so you can trim what the agent reads before each request.
 
+> **Status: v1.0.0 shipped.** The v1 scope below is implemented, covered by
+> contract/security tests, and meets its §9 benchmark gate. §13 is the
+> intentionally deferred post-v1 boundary, not incomplete v1 work.
+
 > This document is written under its own rules: dense, no filler, no restated code.
 > Target ≤ 2.5k tokens. If a section can't earn its tokens, it gets cut.
 

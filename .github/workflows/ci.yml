@@ -25,11 +25,4 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if git diff --quiet "$BASE_SHA" HEAD -- package.json; then
-            exit 0
-          fi
-          if git diff --quiet "$BASE_SHA" HEAD -- package-lock.json; then
-            echo "package.json changed without a matching package-lock.json update" >&2
-            exit 1
-          fi
+        run: node scripts/require-lockfile-update.mjs "$BASE_SHA"
