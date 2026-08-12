@@ -36,7 +36,8 @@ them:
 - **Never put file content in `Finding.reason`.** Build it from templates and
   metadata. A reason like `` `duplicate of ${otherPath}` `` is fine;
   `` `contains "${line}"` `` is a content leak and will be rejected. Detector
-  tests assert reasons are templated (see `generated.test.ts`).
+  tests assert reasons are templated across the registry (see
+  `content-leak.test.ts`).
 - **No I/O.** Detectors receive completed records. No `fs`, no `child_process`,
   no network — that's not a style preference, it's what keeps
   `npx @ndunl075/sherlock` safe to run on an untrusted repo.
