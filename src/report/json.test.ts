@@ -21,7 +21,7 @@ const findings: Finding[] = [
     path: "a.ts",
     detector: "orphan-module",
     confidence: 0.55,
-    reason: "unreachable from any inferred entrypoint via relative import/require edges",
+    reason: "unreachable from any inferred entrypoint via module-graph edges",
     suggest: "review",
   },
 ];

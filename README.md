@@ -7,7 +7,7 @@ every request.
 
 > **Status: v1.0.0 — published.**
 > Scanner, nine detectors, JSON/ignore-patch output, cache, §9 bench, CJS +
-> tsconfig paths graph, and contract tests are in. Package is
+> tsconfig/Vite/Webpack alias graph, and contract tests are in. Package is
 > [`@ndunl075/sherlock`](https://www.npmjs.com/package/@ndunl075/sherlock) —
 > the bare name `sherlock` on npm is a different, unrelated package.
 
@@ -66,7 +66,7 @@ Top trim          312k tok recoverable across 47 files
 
   REVIEW
   PATH                                              DETECTOR        CONF  REASON
-  src/legacy/unused.ts                              orphan-module   0.55  unreachable from any inferred entrypoint via relative import/require edges
+  src/legacy/unused.ts                              orphan-module   0.55  unreachable from any inferred entrypoint via module-graph edges
   docs/old-api.md                                   stale-doc       0.80  references 2 of 3 linked path(s) that no longer exist
 ```
 

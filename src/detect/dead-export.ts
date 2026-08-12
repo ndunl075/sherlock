@@ -3,8 +3,9 @@
 // Signal: exported symbol with zero graph inbound edges. Confidence source:
 // import graph completeness — v1's graph (graph/) resolves relative
 // specifiers for ES module import/export, CommonJS require/module.exports,
-// dynamic import(), and tsconfig/jsconfig `paths`. Bundler-only aliases and
-// bare package imports still look dead; confidence stays capped under 1.0.
+// dynamic import(), tsconfig/jsconfig paths, and static Vite/Webpack aliases.
+// Bare package imports and dynamic config still look dead; confidence stays
+// capped under 1.0.
 
 import type { Detector, FileRecord, Finding } from "../types.js";
 
@@ -25,7 +26,7 @@ export const deadExportDetector: Detector = {
         path: file.path,
         detector: "dead-export",
         confidence,
-        reason: `${dead.length} exported symbol(s) have zero inbound references anywhere in this repo (relative import/require only, v1)`,
+        reason: `${dead.length} exported symbol(s) have zero inbound module-graph references anywhere in this repo (v1)`,
         suggest: "review",
       });
     }

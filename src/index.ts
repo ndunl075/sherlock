@@ -31,7 +31,7 @@ import { loadConfig } from "./config/index.js";
 import { loadCache, saveCache, isCacheValid, type CacheEntry } from "./cache/index.js";
 import { runPool } from "./util/pool.js";
 import { collectPackageEntrypoints, resolveAgainstKnownPaths } from "./util/package-entrypoints.js";
-import { loadPathAliases } from "./graph/aliases.js";
+import { loadBundlerAliases, loadPathAliases } from "./graph/aliases.js";
 import { type Ctx, type FileKind, type FileRecord, type Finding, type Tier } from "./types.js";
 
 // Public semver surface — ARCHITECTURE.md §11. Keep these root exports
@@ -171,7 +171,8 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
   const cacheP = loadCache(absRoot);
   const packageEntrypointsP = loadPackageEntrypointSpecs(absRoot);
   const pathAliasesP = loadPathAliases(absRoot);
-  const [discovered, config, cache, packageEntrypointSpecs, pathAliases] = await Promise.all([
+  const bundlerAliasesP = loadBundlerAliases(absRoot);
+  const [discovered, config, cache, packageEntrypointSpecs, pathAliases, bundlerAliases] = await Promise.all([
     discoveredP.then((v) => {
       mark("discover", t);
       return v;
@@ -183,6 +184,7 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
     }),
     packageEntrypointsP,
     pathAliasesP,
+    bundlerAliasesP,
   ]);
   mark("discover+config+cache+package.json+aliases", t);
 
@@ -284,7 +286,9 @@ export async function scan(root: string, opts: ScanOptions = {}): Promise<ScanRe
       getCached: getCachedModuleInfo,
       prefetched,
       packageEntrypoints: packageEntrypointSpecs,
-      ...(pathAliases ? { pathAliases } : {}),
+      ...(pathAliases || bundlerAliases
+        ? { pathAliases: [pathAliases, bundlerAliases].filter((config): config is NonNullable<typeof config> => config !== undefined) }
+        : {}),
     }),
     runPool(sampledToMeasure, async (f) => {
       const kind = kindOf(f.path);

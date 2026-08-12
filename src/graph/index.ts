@@ -59,8 +59,8 @@ export interface BuildGraphOptions {
    * may lack an extension). Resolved against known graph-eligible paths.
    */
   packageEntrypoints?: readonly string[];
-  /** tsconfig/jsconfig paths — bare specifiers mapped before resolution */
-  pathAliases?: PathAliasConfig;
+  /** tsconfig/jsconfig and static bundler paths — bare specifiers mapped before resolution */
+  pathAliases?: PathAliasConfig | readonly PathAliasConfig[];
 }
 
 function extnameOf(relPath: string): string {
@@ -73,16 +73,20 @@ function resolveSpecifier(
   spec: string,
   fromPath: string,
   knownPaths: ReadonlySet<string>,
-  pathAliases?: PathAliasConfig,
+  pathAliases?: PathAliasConfig | readonly PathAliasConfig[],
 ): string | undefined {
-  let candidate: string | undefined;
   if (spec.startsWith("./") || spec.startsWith("../")) {
-    candidate = resolveRelative(spec, fromPath) ?? undefined;
-  } else if (pathAliases) {
-    candidate = applyPathAlias(spec, pathAliases);
+    const candidate = resolveRelative(spec, fromPath);
+    return candidate ? resolveAgainstKnownPaths(candidate, knownPaths) : undefined;
   }
-  if (!candidate) return undefined;
-  return resolveAgainstKnownPaths(candidate, knownPaths);
+  const configs = pathAliases ? (Array.isArray(pathAliases) ? pathAliases : [pathAliases]) : [];
+  for (const config of configs) {
+    const candidate = applyPathAlias(spec, config);
+    if (!candidate) continue;
+    const resolved = resolveAgainstKnownPaths(candidate, knownPaths);
+    if (resolved) return resolved;
+  }
+  return undefined;
 }
 
 export async function buildGraph(files: GraphInput[], opts: BuildGraphOptions = {}): Promise<GraphResult> {

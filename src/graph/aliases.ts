@@ -83,6 +83,55 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+function normalizeBundlerTarget(value: string): string | undefined {
+  const normalized = toPosix(value).replace(/^\.\//, "").replace(/\/$/, "");
+  return normalized && !path.posix.isAbsolute(normalized) && !normalized.startsWith("../") ? normalized : undefined;
+}
+
+function bundlerRule(find: string, replacement: string): PathAliasRule | undefined {
+  const target = normalizeBundlerTarget(replacement);
+  if (!find || !target) return undefined;
+  if (find.endsWith("$")) return { pattern: find.slice(0, -1), targets: [target] };
+  return { pattern: `${find.replace(/\/$/, "")}/*`, targets: [`${target}/*`] };
+}
+
+function staticReplacement(expression: string): string | undefined {
+  const literal = expression.match(/^\s*["']([^"']+)["']\s*$/)?.[1];
+  if (literal) return literal;
+  const resolved = expression.match(/(?:path\.)?resolve\(\s*__dirname\s*,\s*["']([^"']+)["']\s*\)/)?.[1];
+  if (resolved) return resolved;
+  return expression.match(/fileURLToPath\(\s*new URL\(\s*["']([^"']+)["']/)?.[1];
+}
+
+/** Extract literal Vite/Webpack aliases without importing or executing config code. */
+export function parseBundlerAliases(source: string): PathAliasConfig | undefined {
+  const rules: PathAliasRule[] = [];
+  const objectBlock = source.match(/\balias\s*:\s*\{([\s\S]*?)\}/)?.[1];
+  if (objectBlock) {
+    const pair = /["']([^"']+)["']\s*:\s*((?:path\.)?resolve\(\s*__dirname\s*,\s*["'][^"']+["']\s*\)|fileURLToPath\(\s*new URL\(\s*["'][^"']+["'][\s\S]*?\)\s*\)|["'][^"']+["'])/g;
+    for (const match of objectBlock.matchAll(pair)) {
+      const replacement = staticReplacement(match[2] ?? "");
+      const rule = replacement ? bundlerRule(match[1] ?? "", replacement) : undefined;
+      if (rule) rules.push(rule);
+    }
+  }
+
+  const arrayBlock = source.match(/\balias\s*:\s*\[([\s\S]*?)\]/)?.[1];
+  if (arrayBlock) {
+    for (const match of arrayBlock.matchAll(/\{([\s\S]*?)\}/g)) {
+      const find = match[1]?.match(/\bfind\s*:\s*["']([^"']+)["']/)?.[1];
+      const expression = match[1]?.match(/\breplacement\s*:\s*([^,}\n]+)/)?.[1];
+      const replacement = expression ? staticReplacement(expression) : undefined;
+      const rule = find && replacement ? bundlerRule(find, replacement) : undefined;
+      if (rule) rules.push(rule);
+    }
+  }
+
+  if (rules.length === 0) return undefined;
+  rules.sort((a, b) => b.pattern.length - a.pattern.length);
+  return { baseUrl: "", rules };
+}
+
 /** Pure parse of one tsconfig-shaped object (already JSON). */
 export function parsePathAliasConfig(
   raw: unknown,
@@ -226,4 +275,29 @@ export async function loadPathAliases(absRoot: string): Promise<PathAliasConfig 
     );
   }
   return undefined;
+}
+
+const BUNDLER_CONFIG_NAMES = [
+  "vite.config.ts", "vite.config.js", "vite.config.mts", "vite.config.mjs", "vite.config.cts", "vite.config.cjs",
+  "webpack.config.ts", "webpack.config.js", "webpack.config.mts", "webpack.config.mjs", "webpack.config.cts", "webpack.config.cjs",
+];
+const MAX_BUNDLER_CONFIG_BYTES = 1024 * 1024;
+
+/** Load static Vite/Webpack aliases from root config files, never executing target-repo code. */
+export async function loadBundlerAliases(absRoot: string): Promise<PathAliasConfig | undefined> {
+  const rules: PathAliasRule[] = [];
+  for (const name of BUNDLER_CONFIG_NAMES) {
+    try {
+      const absPath = path.join(absRoot, name);
+      const stat = await fs.stat(absPath);
+      if (!stat.isFile() || stat.size > MAX_BUNDLER_CONFIG_BYTES) continue;
+      const config = parseBundlerAliases(await fs.readFile(absPath, "utf8"));
+      if (config) rules.push(...config.rules);
+    } catch {
+      // Absent/unreadable configs are normal; this enrichment must not fail a scan.
+    }
+  }
+  if (rules.length === 0) return undefined;
+  rules.sort((a, b) => b.pattern.length - a.pattern.length);
+  return { baseUrl: "", rules };
 }
