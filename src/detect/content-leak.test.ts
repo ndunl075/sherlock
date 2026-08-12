@@ -20,8 +20,8 @@ const REASON_SHAPES: Record<string, RegExp> = {
   "stale-doc": /^references \d+ of \d+ linked path\(s\) that no longer exist in this repo$/,
   "dup-doc": /^~\d+% overlap with /,
   "cold-and-costly": /^\d+ tok, untouched for ~\d+ days, no known-entrypoint filename$/,
-  "orphan-module": /^unreachable from any inferred entrypoint via relative import\/require edges$/,
-  "dead-export": /^\d+ exported symbol\(s\) have zero inbound references anywhere in this repo \(relative import\/require only, v1\)$/,
+  "orphan-module": /^unreachable from any inferred entrypoint via module-graph edges$/,
+  "dead-export": /^\d+ exported symbol\(s\) have zero inbound module-graph references anywhere in this repo \(v1\)$/,
 };
 
 function record(overrides: Partial<FileRecord>): FileRecord {

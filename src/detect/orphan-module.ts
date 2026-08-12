@@ -2,8 +2,8 @@
 //
 // Signal: file unreachable from any entrypoint. Confidence source:
 // entrypoint inference quality — basename allowlist + package.json
-// main/bin/exports (graph/). Path aliases / unconventional entrypoints that
-// aren't declared still false-positive; confidence stays moderate for that.
+// main/bin/exports (graph/). Unconventional entrypoints that aren't declared
+// still false-positive; confidence stays moderate for that.
 
 import type { Detector, FileRecord, Finding } from "../types.js";
 
@@ -19,7 +19,7 @@ export const orphanModuleDetector: Detector = {
         path: file.path,
         detector: "orphan-module",
         confidence: CONFIDENCE,
-        reason: "unreachable from any inferred entrypoint via relative import/require edges",
+        reason: "unreachable from any inferred entrypoint via module-graph edges",
         suggest: "review",
       });
     }

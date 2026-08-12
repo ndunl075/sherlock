@@ -104,3 +104,24 @@ test("CLI: --help exits 0; --json prints schemaVersion; --budget gate exits 1", 
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("scan(): Vite aliases create graph reachability without executing vite.config", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sherlock-vite-alias-"));
+  try {
+    await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ main: "./entry.ts" }));
+    await fs.writeFile(path.join(root, "vite.config.ts"), `
+      throw new Error("Sherlock must never execute this config");
+      export default { resolve: { alias: { "@": "./src" } } };
+    `);
+    await fs.writeFile(path.join(root, "entry.ts"), `import { helper } from "@/helper"; export const run = helper;`);
+    await fs.mkdir(path.join(root, "src"));
+    await fs.writeFile(path.join(root, "src", "helper.ts"), `export const helper = 1;`);
+
+    const result = await scan(root);
+    const helper = result.files.find((file) => file.path === "src/helper.ts");
+    assert.equal(helper?.orphanModule, false);
+    assert.deepEqual(helper?.deadExportSymbols ?? [], []);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
